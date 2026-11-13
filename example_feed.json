@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "external_id": "demo-001",
+      "title": "Apple iPhone 13 128GB",
+      "price": 32000,
+      "url": "https://example.com/listings/demo-001",
+      "category": "Телефоны",
+      "location": "Астрахань",
+      "published_at": "2026-11-14T00:00:00+04:00"
+    }
+  ]
+}
+

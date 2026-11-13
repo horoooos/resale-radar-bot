@@ -1,0 +1,22 @@
+name = "resale-radar-bot"
+main = "src/index.js"
+compatibility_date = "2026-11-14"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "resale-radar"
+# После команды `npx wrangler d1 create resale-radar` вставьте сюда database_id.
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[vars]
+DEFAULT_SALE_FEE_PERCENT = "5"
+DEFAULT_FIXED_COSTS = "500"
+MIN_COMPARABLES = "3"
+# Необязательно. Пустое значение разрешает доступ всем.
+ALLOWED_USER_IDS = ""
+# Необязательно. URL разрешённого JSON-feed с объявлениями.
+LISTINGS_FEED_URL = ""
+
