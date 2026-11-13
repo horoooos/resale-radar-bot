@@ -9,14 +9,14 @@ crons = ["*/5 * * * *"]
 binding = "DB"
 database_name = "resale-radar"
 # После команды `npx wrangler d1 create resale-radar` вставьте сюда database_id.
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "038b9fea-d4e0-403b-bb17-2f6df3d56038"
 
 [vars]
 DEFAULT_SALE_FEE_PERCENT = "5"
 DEFAULT_FIXED_COSTS = "500"
 MIN_COMPARABLES = "3"
 # Необязательно. Пустое значение разрешает доступ всем.
-ALLOWED_USER_IDS = ""
+ALLOWED_USER_IDS = "815803688"
 # Необязательно. URL разрешённого JSON-feed с объявлениями.
 LISTINGS_FEED_URL = ""
 
