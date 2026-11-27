@@ -289,7 +289,7 @@ async function api(request, env, url) {
     if((request.method==='POST'&&url.pathname==='/api/trades')||(request.method==='PATCH'&&tradeMatch)){
       const body=await request.json(), fields=tradeFields(body);
       const external=String(body.external_id||'').slice(0,100)||null;
-      if(external&&!await env.DB.prepare('SELECT 1 FROM watch_listings wl JOIN watches w ON w.id=wl.watch_id WHERE w.chat_id=? AND wl.external_id=? LIMIT 1').bind(chatId,external).first())throw new Error('Объявление недоступно');
+      if(!tradeMatch&&external&&!await env.DB.prepare('SELECT 1 FROM watch_listings wl JOIN watches w ON w.id=wl.watch_id WHERE w.chat_id=? AND wl.external_id=? LIMIT 1').bind(chatId,external).first())throw new Error('Объявление недоступно');
       if(tradeMatch){
         const result=await env.DB.prepare('UPDATE trade_book SET title=?,purchase_price=?,sale_price=?,costs_json=?,net_profit=?,purchased_at=?,sold_at=? WHERE id=? AND chat_id=?').bind(fields.title,fields.purchase,fields.sale,JSON.stringify(fields.costs),fields.profit,fields.purchased,fields.sold,Number(tradeMatch[1]),chatId).run();
         if(!result.meta.changes)return json({ok:false,error:'Сделка не найдена'},404);
@@ -320,7 +320,7 @@ async function api(request, env, url) {
            WHERE w.chat_id = ?
            ORDER BY wl.found_at DESC LIMIT 80`,
         ).bind(chatId).all(),
-        env.DB.prepare("SELECT COUNT(*) AS count FROM listings").first(),
+        env.DB.prepare('SELECT COUNT(DISTINCT wl.external_id) AS count FROM watch_listings wl JOIN watches w ON w.id=wl.watch_id WHERE w.chat_id=?').bind(chatId).first(),
         env.DB.prepare(
           "SELECT COUNT(*) AS count FROM notifications n JOIN watches w ON w.id = n.watch_id WHERE w.chat_id = ?",
         ).bind(chatId).first(),
@@ -331,7 +331,7 @@ async function api(request, env, url) {
         watches: watches.map(w=>({...w, options: watchOptions(JSON.parse(w.options_json || '{}')), options_json: undefined})),
         source_connected: Boolean(env.LISTINGS_FEED_URL) || watches.some(w => w.scanned_at && !w.scan_error),
         scan_interval: "каждые 5 минут",
-        deals: deals.map((deal) => {
+        deals: deals.filter((deal,index,rows)=>rows.findIndex(row=>row.external_id===deal.external_id)===index).map((deal) => {
           const raw = JSON.parse(deal.raw_json || '{}');
           return { ...deal, description: raw.description || '', condition: raw.condition || '', seller_type: raw.seller_type || 'unknown', avito_price_status:raw.avito_price_status||'unknown', avito_price_label:raw.avito_price_label||'', specs:raw.specs||{},
             analysis: deal.assessment_json ? JSON.parse(deal.assessment_json) : null,

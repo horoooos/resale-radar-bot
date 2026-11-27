@@ -96,7 +96,9 @@ async def details(context, row):
         seller_text = ' '.join(await seller.all_inner_texts())
         result['seller_type'] = 'private' if 'Частное лицо' in seller_text else 'business' if any(w in seller_text for w in ['Компания', 'Магазин']) else 'unknown'
         buy = page.get_by_text(re.compile(r'^Купить (?:с (?:Авито )?доставкой|с доставкой)$', re.I))
-        result['delivery'] = True if await buy.count() else None
+        result['delivery'] = mobile_facts.get('delivery')
+        if result['delivery'] is None and await buy.count():
+            result['delivery'] = True
         gallery=page.locator('[data-marker="image-frame"] img, [data-marker="item-view/gallery"] img, [data-marker="image-frame/image"]').first
         try:
             if await gallery.count():
