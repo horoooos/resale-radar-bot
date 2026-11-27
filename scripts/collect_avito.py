@@ -50,12 +50,14 @@ EXTRACT = """cards => cards.map(c => {
 def model_key(title):
     text = title.lower().replace('ё', 'е')
     model = re.sub(r'[^a-zа-я0-9]', '', text.split(',')[0])
+    model = re.sub(r'^(?:(?:смартфон|мобильныйтелефон|телефон|apple))+', '', model)
     memory = re.search(r'(\d+)\s*(гб|gb|тб|tb)', text)
-    return model + '|' + (memory[1] + ('tb' if memory[2] in ('тб', 'tb') else 'gb') if memory else 'unknown')
+    ram = re.search(r'(\d+)\s*/\s*\d+\s*(?:гб|gb)',text)
+    return model + '|' + (memory[1] + ('tb' if memory[2] in ('тб', 'tb') else 'gb') if memory else 'unknown') + ('|ram'+ram[1] if ram else '')
 
 
 async def details(context, row):
-    result = {**row, 'detail_status': 'pending'}
+    result = {**row, 'detail_status': 'pending', 'details_attempted_at':datetime.now(timezone.utc).isoformat()}
     parsed = urlsplit(row.get('url', ''))
     if parsed.scheme != 'https' or not (parsed.hostname or '').endswith('.avito.ru'):
         return result
@@ -117,12 +119,29 @@ async def collect_market(context, rows, known_keys, cache):
                     samples.append(candidate)
             await asyncio.sleep(3)
         except Exception:
-            print(json.dumps({'market': 'unavailable', 'model_key': key}), flush=True)
+            print(json.dumps({'market': 'unavailable'}), flush=True)
         finally:
             await page.close()
+            api('/collector/market-status', {'model_key':key})
     for offset in range(0, len(samples), 5):
         api('/collector/market', {'items': samples[offset:offset+5]})
     return len(samples)
+
+
+def upload(watch_id, items):
+    sent=0
+    for offset in range(0,len(items),3):
+        sent += api('/collector/results',{'watch_id':watch_id,'items':items[offset:offset+3]})['sent']
+    api('/collector/status',{'watch_id':watch_id,'count':len(items)})
+    return sent
+
+
+def recent_attempt(row):
+    try:
+        value=datetime.fromisoformat(row.get('details_attempted_at','').replace('Z','+00:00'))
+        return (datetime.now(timezone.utc)-value).total_seconds()<1200
+    except (ValueError,TypeError):
+        return False
 
 
 async def main():
@@ -174,23 +193,25 @@ async def main():
                             pass
                         row['published_at'] = datetime.now(timezone.utc).isoformat()
                         cached = cache.get(str(row['external_id']))
+                        if cached:
+                            row['details_attempted_at']=cached.get('details_attempted_at')
                         if cached and cached.get('detail_status') == 'complete':
                             row.update({k:cached.get(k) for k in ['description','condition','delivery','seller_type','detail_status','details_checked_at']})
                         items.append(row)
                     if not items:
                         raise RuntimeError('В выдаче нет доступных карточек с ценами')
+                    sent = upload(watch['id'],items)
                     enriched = 0
                     for i, row in enumerate(items):
-                        if row.get('detail_status') != 'complete' and enriched < 5:
+                        if row.get('detail_status') != 'complete' and not recent_attempt(row) and enriched < 5:
                             items[i] = await details(context, row)
                             enriched += 1
                             await asyncio.sleep(2)
+                    if enriched:
+                        sent += upload(watch['id'],items)
                     market_count = await collect_market(context, items, set(configuration.get('market_keys', [])), cache)
-                    sent = 0
-                    for offset in range(0, len(items), 3):
-                        result = api('/collector/results', {'watch_id': watch['id'], 'items': items[offset:offset + 3]})
-                        sent += result['sent']
-                    api('/collector/status', {'watch_id': watch['id'], 'count': len(items)})
+                    if market_count:
+                        sent += upload(watch['id'],items)
                     print(json.dumps({'watch_id': watch['id'], 'received': len(items), 'details':sum(i.get('detail_status') == 'complete' for i in items), 'market_samples':market_count, 'photos': sum(bool(i.get('image_data')) for i in items), 'sent': sent}), flush=True)
                 except Exception as error:
                     failed += 1

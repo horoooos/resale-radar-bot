@@ -12,6 +12,8 @@ test('market comparisons distinguish phone model numbers and memory size', () =>
   assert.notEqual(comparableKey('iPhone 11, 64 ГБ'), comparableKey('iPhone 11, 128 ГБ'));
   assert.notEqual(comparableKey('iPhone 11 Pro, 128 ГБ'), comparableKey('iPhone 11, 128 ГБ'));
   assert.equal(comparableKey('iPhone 11, 128 ГБ, 1 SIM'), comparableKey('iPhone 11, 128 ГБ, SIM + eSIM'));
+  assert.equal(comparableKey('Apple iPhone 11, 128 ГБ'), comparableKey('iPhone 11, 128 ГБ'));
+  assert.notEqual(comparableKey('Xiaomi Redmi Note 8, 4/64 ГБ'), comparableKey('Xiaomi Redmi Note 8, 6/64 ГБ'));
 });
 
 test('description checks distinguish unknown delivery, negative delivery and seller claims', () => {

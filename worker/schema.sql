@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS watch_options (watch_id INTEGER PRIMARY KEY, options_
 CREATE TABLE IF NOT EXISTS assessments (watch_id INTEGER NOT NULL, external_id TEXT NOT NULL, payload TEXT NOT NULL, assessed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(watch_id, external_id));
 CREATE TABLE IF NOT EXISTS market_samples (external_id TEXT PRIMARY KEY, model_key TEXT NOT NULL, payload TEXT NOT NULL, checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS idx_market_model ON market_samples(model_key, checked_at);
+CREATE TABLE IF NOT EXISTS market_attempts (model_key TEXT PRIMARY KEY, checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS price_history (external_id TEXT NOT NULL, price INTEGER NOT NULL, checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS idx_history_item ON price_history(external_id, checked_at);
 CREATE TABLE IF NOT EXISTS listing_states (chat_id INTEGER NOT NULL, external_id TEXT NOT NULL, favorite INTEGER NOT NULL DEFAULT 0, dismissed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat_id, external_id));

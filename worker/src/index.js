@@ -392,6 +392,7 @@ function validateListing(item) {
     seller_type: ['private','business'].includes(item.seller_type) ? item.seller_type : 'unknown',
     detail_status: item.detail_status === 'complete' ? 'complete' : 'pending',
     details_checked_at: item.details_checked_at || (item.detail_status==='complete' ? new Date().toISOString() : null),
+    details_attempted_at: item.details_attempted_at || null,
     published_at: String(item.published_at || new Date().toISOString()),
   };
   if (!listing.external_id || listing.title.length < 2) throw new Error("нет external_id или title");
@@ -516,9 +517,10 @@ async function sendDeal(env, chatId, listing, result) {
 
 function comparableKey(title) {
   const text = String(title).toLowerCase().replaceAll("ё", "е");
-  const model = text.split(",")[0].replace(/[^a-zа-я0-9]/gu, "");
+  const model = text.split(",")[0].replace(/[^a-zа-я0-9]/gu, "").replace(/^(?:(?:смартфон|мобильныйтелефон|телефон|apple))+/u,'');
   const memory = text.match(/(\d+)\s*(гб|gb|тб|tb)/iu);
-  return `${model}|${memory ? memory[1] + (/тб|tb/iu.test(memory[2]) ? "tb" : "gb") : "unknown"}`;
+  const ram=text.match(/(\d+)\s*\/\s*\d+\s*(?:гб|gb)/iu);
+  return `${model}|${memory ? memory[1] + (/тб|tb/iu.test(memory[2]) ? "tb" : "gb") : "unknown"}${ram?'|ram'+ram[1]:''}`;
 }
 
 async function comparablePrices(env, listing) {
@@ -742,7 +744,15 @@ async function collector(request, env, url) {
     const keys=await env.DB.prepare("SELECT model_key,payload FROM market_samples WHERE checked_at > datetime('now','-6 hours') LIMIT 300").all();
     const counts={};
     for(const row of keys.results){const sample=JSON.parse(row.payload);if(sample.detail_status==='complete'&&!inspectListing(sample).risks.length) counts[row.model_key]=(counts[row.model_key]||0)+1;}
-    return json({ ok: true, watches: allowed.map(w=>({...w,options:watchOptions(JSON.parse(w.options_json||'{}'))})), detail_cache: cache.results.map(r=>JSON.parse(r.payload)), market_keys: Object.keys(counts).filter(k=>counts[k]>=6) });
+    const attempts=await env.DB.prepare("SELECT model_key FROM market_attempts WHERE checked_at > datetime('now','-20 minutes')").all();
+    return json({ ok: true, watches: allowed.map(w=>({...w,options:watchOptions(JSON.parse(w.options_json||'{}'))})), detail_cache: cache.results.map(r=>JSON.parse(r.payload)), market_keys: [...new Set([...Object.keys(counts).filter(k=>counts[k]>=6),...attempts.results.map(r=>r.model_key)])] });
+  }
+  if(request.method==='POST' && url.pathname==='/collector/market-status'){
+    const body=await request.json();
+    const key=String(body.model_key||'').slice(0,200);
+    if(!key)return json({ok:false},400);
+    await env.DB.prepare('INSERT OR REPLACE INTO market_attempts(model_key,checked_at) VALUES (?,CURRENT_TIMESTAMP)').bind(key).run();
+    return json({ok:true});
   }
   if (request.method === 'POST' && url.pathname === '/collector/market') {
     const body=await request.json();

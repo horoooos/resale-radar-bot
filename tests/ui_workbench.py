@@ -68,6 +68,7 @@ with sync_playwright() as pw:
     Path('ui-artifacts').mkdir(exist_ok=True)
     page.screenshot(path='ui-artifacts/workbench-mobile.png',full_page=True)
     page.get_by_role('button',name='Создать фильтр',exact=True).click()
+    page.locator('#watch-modal').evaluate('el=>el.scrollTop=el.scrollHeight/2')
     page.screenshot(path='ui-artifacts/radar-settings-mobile.png')
     assert not errors,errors
     browser.close()

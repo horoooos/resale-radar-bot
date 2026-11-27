@@ -8,4 +8,5 @@ data/*.db
 data/*.db-*
 worker/.wrangler/
 node_modules/
+.artifacts/
 
