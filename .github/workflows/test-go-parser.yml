@@ -1,0 +1,24 @@
+name: Test upstream Go Avito collector
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/test-go-parser.yml
+permissions:
+  contents: read
+jobs:
+  live-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: Miraines/real-estate-parser
+          ref: 494791fcf72c3da0d96f8b04b6fe25c5f9602a8e
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: false
+      - name: Run original upstream Avito live connectivity test without proxy
+        run: go test ./internal/source/avito -run '^TestSmokeFetch$' -count=1 -v -timeout 70s
