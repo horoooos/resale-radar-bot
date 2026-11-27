@@ -98,6 +98,15 @@ with sync_playwright() as pw:
     page.locator('.bottom-nav [data-tab=service]').click()
     expect(page.locator('.plan-card')).to_contain_text('0 ₽')
     page.screenshot(path='ui-artifacts/service-mobile.png')
+    fixture['watches'][0]['scan_error']='Доступ ограничен: проблема с IP'
+    fixture['watches'][0]['scanned_at']='2026-11-27 10:00:00'
+    page.reload()
+    expect(page.locator('#source-status')).to_contain_text('Свежие объявления пока не подтверждены'.lower(),ignore_case=True)
+    assert len(fixture['deals'])==2
+    fixture['watches'][0]['scan_error']=None
+    fixture['watches'][0]['scanned_at']='2020-01-01 00:00:00'
+    page.reload()
+    expect(page.locator('#source-status')).to_contain_text('Данные не обновлялись более 20 минут')
     assert not errors,errors
     browser.close()
 server.shutdown()

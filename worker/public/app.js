@@ -184,9 +184,19 @@ async function load() {
     $("#alert-count").textContent = data.stats.alerts;
     renderWatches(data.watches);
     renderDeals(data.deals || []);
-    $("#source-status").textContent = data.source_connected
-      ? "Источник подключён · расписание каждые 5 минут · уведомления в чат включены"
-      : "Сохраните ссылку поиска Avito. Облачная проверка запускается по расписанию каждые 5 минут; результат появится на карточке фильтра.";
+    const active = data.watches.filter(w=>w.enabled);
+    const failed = active.filter(w=>w.scan_error);
+    const checked = active.map(w=>Date.parse(w.scanned_at ? w.scanned_at.replace(' ','T').replace(/Z$/, '')+'Z' : '')).filter(Number.isFinite);
+    const stale = checked.length && Date.now()-Math.min(...checked)>20*60000;
+    $('#source-status').textContent = !active.length
+      ? 'Создайте или включите радар со ссылкой поиска Avito.'
+      : failed.length
+        ? `Проверка ${failed.length} из ${active.length} радаров не удалась. Сохранённые находки доступны; свежие объявления пока не подтверждены. Подробности — в разделе «Поиски».`
+        : stale
+          ? 'Данные не обновлялись более 20 минут. Проверьте время последней проверки в разделе «Поиски». Расписание GitHub может задерживаться.'
+          : !checked.length
+            ? 'Радар ожидает первую проверку. В GitHub задан интервал 5 минут; время запуска может задерживаться.'
+            : 'Последние проверки доступны в разделе «Поиски». В GitHub задан интервал 5 минут; уведомления приходят после проверки объявления и расчёта прибыли.';
   } catch (error) {
     $("#watch-list").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
     toast(error.message, true);

@@ -1,4 +1,4 @@
-"""Hourly collector using the Chrome/Xvfb approach verified with avito-watch.
+"""Mobile collector with bounded browser failover and private anonymous state.
 
 This is an independent adapter, not a copy of upstream AGPL application code.
 """
@@ -15,6 +15,7 @@ from urllib.error import HTTPError
 
 from camoufox.async_api import AsyncCamoufox
 from mobile_avito import mobile_url, parse_mobile_facts
+from browser_context import open_context
 
 BASE = os.environ['WORKER_URL'].strip().rstrip('/')
 TOKEN = os.environ['COLLECTOR_TOKEN']
@@ -178,7 +179,9 @@ async def main():
         return
     async with AsyncCamoufox(headless=False, humanize=True) as browser:
         stored=api('/collector/session?engine=camoufox').get('state')
-        context = await browser.new_context(viewport={'width':390,'height':844},has_touch=True,**({'storage_state':stored} if stored else {}))
+        async def discard_camoufox():
+            api('/collector/session', {'engine':'camoufox','state':{'cookies':[],'origins':[]}})
+        context = await open_context(browser, {'viewport':{'width':390,'height':844},'has_touch':True}, stored, discard_camoufox)
         fallback_driver=None
         fallback_browser=None
         engine='camoufox'
@@ -193,8 +196,8 @@ async def main():
                     host = urlsplit(url).hostname or ''
                     if urlsplit(url).scheme != 'https' or not (host == 'avito.ru' or host.endswith('.avito.ru')):
                         raise ValueError('Некорректная ссылка Avito')
-                    await page.goto(url, wait_until='domcontentloaded', timeout=45000)
                     try:
+                        await page.goto(url, wait_until='domcontentloaded', timeout=45000)
                         cards = await catalog_cards(page)
                     except Exception:
                         first_error=(await page.title())[:150]
@@ -206,7 +209,9 @@ async def main():
                         fallback_driver=await async_playwright().start()
                         fallback_browser=await fallback_driver.chromium.launch(channel='chrome',headless=False,args=['--use-gl=angle','--use-angle=gl-egl','--ignore-gpu-blocklist'])
                         stored=api('/collector/session?engine=chrome').get('state')
-                        context=await fallback_browser.new_context(**fallback_driver.devices['Pixel 7'],**({'storage_state':stored} if stored else {}))
+                        async def discard_chrome():
+                            api('/collector/session', {'engine':'chrome','state':{'cookies':[],'origins':[]}})
+                        context=await open_context(fallback_browser, fallback_driver.devices['Pixel 7'], stored, discard_chrome)
                         engine='chrome'
                         page=await context.new_page()
                         await page.goto(url,wait_until='domcontentloaded',timeout=45000)

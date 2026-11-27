@@ -3,9 +3,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../worker/src/index.js', import.meta.url), 'utf8');
-const { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions, tradeFields } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions, tradeFields };').toString('base64')}`);
+const { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions, tradeFields, deleteWatch } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions, tradeFields, deleteWatch };').toString('base64')}`);
 const listing = { external_id: 'test', title: 'Телефон', price: 10000, url: 'https://example.com/item', image_url: 'https://example.com/photo.jpg', description:'Полностью исправный телефон, всё проверено продавцом.', detail_status:'complete' };
 const result = { expected: 15000, costs: 1000, profit: 4000, roi: 40, confidence: 'задана пользователем', count: 0 };
+
+test('radar deletion is one owner-scoped transaction and preserves trade history', async()=>{
+  let statements;
+  const DB={prepare(sql){return {bind(...values){return {sql,values};}};},async batch(batch){statements=batch;return batch.map((_,i)=>({meta:{changes:i===batch.length-1?1:2}}));}};
+  const result=await deleteWatch({DB},7,815803688);
+  assert.equal(result.meta.changes,1);
+  assert.equal(statements.length,9);
+  for(const statement of statements){
+    assert.match(statement.sql,/chat_id = \?/);
+    assert.deepEqual(statement.values,[7,815803688]);
+    assert.doesNotMatch(statement.sql,/trade_book|DELETE FROM listings|listing_states/);
+  }
+  assert.match(statements.at(-1).sql,/DELETE FROM watches /);
+});
 
 test('trade journal calculates actual net profit and leaves unsold stock unrealized',()=>{
   const body={title:'iPhone 11',purchase_price:10000,sale_price:15000,purchased_at:'2026-11-20',sold_at:'2026-11-27',repair:1000,delivery:300,commission:500,other:200};

@@ -2,7 +2,7 @@ name: Workbench checks
 on:
   workflow_dispatch:
   push:
-    paths: ['worker/**', 'tests/**', '.github/workflows/workbench-checks.yml']
+    paths: ['worker/**', 'tests/**', 'scripts/browser_context.py', 'scripts/collect_avito.py', '.github/workflows/workbench-checks.yml']
 permissions:
   contents: read
 jobs:
@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install playwright==1.57.0 pytest pytest-asyncio
-      - run: pytest tests/test_mobile_avito.py -q
+      - run: pytest tests/test_mobile_avito.py tests/test_browser_context.py -q
       - run: python tests/ui_workbench.py
       - uses: actions/upload-artifact@v4
         if: always()

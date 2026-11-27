@@ -14,6 +14,16 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+async function deleteWatch(env, watchId, chatId) {
+  const tables = ['watch_sources', 'watch_options', 'scan_status', 'watch_listings', 'assessments', 'deal_results', 'deal_results_v2', 'notifications'];
+  const statements = tables.map(table => env.DB.prepare(
+    `DELETE FROM ${table} WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)`,
+  ).bind(watchId, chatId));
+  statements.push(env.DB.prepare('DELETE FROM watches WHERE id = ? AND chat_id = ?').bind(watchId, chatId));
+  const results = await env.DB.batch(statements);
+  return results.at(-1);
+}
+
 function words(value) {
   return (String(value).toLowerCase().match(/[a-zа-яё0-9]+/giu) || []).filter(
     (word) => word.length > 1,
@@ -395,18 +405,7 @@ async function api(request, env, url) {
     const deleteMatch = url.pathname.match(/^\/api\/watches\/(\d+)$/);
     if (request.method === "DELETE" && deleteMatch) {
       const watchId = Number(deleteMatch[1]);
-      await env.DB.prepare(
-        "DELETE FROM watch_sources WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)",
-      ).bind(watchId, chatId).run();
-      await env.DB.prepare(
-        "DELETE FROM deal_results WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)",
-      ).bind(watchId, chatId).run();
-      await env.DB.prepare(
-        "DELETE FROM notifications WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)",
-      ).bind(watchId, chatId).run();
-      const result = await env.DB.prepare("DELETE FROM watches WHERE id = ? AND chat_id = ?")
-        .bind(watchId, chatId)
-        .run();
+      const result = await deleteWatch(env, watchId, chatId);
       return json({ ok: true, deleted: Boolean(result.meta.changes) });
     }
     if (request.method === "POST" && url.pathname === "/api/listings") {
@@ -721,9 +720,7 @@ async function command(env, message) {
       await answer(env, chatId, "Формат: /delwatch ID");
       return;
     }
-    const result = await env.DB.prepare("DELETE FROM watches WHERE id = ? AND chat_id = ?")
-      .bind(id, chatId)
-      .run();
+    const result = await deleteWatch(env, id, chatId);
     await answer(env, chatId, result.meta.changes ? "Удалено." : "Такой фильтр не найден.");
     return;
   }
