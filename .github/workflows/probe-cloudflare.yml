@@ -1,0 +1,26 @@
+name: Test free Cloudflare Avito access
+on:
+  push:
+    paths:
+      - scripts/probe_cf.js
+      - scripts/probe-wrangler.toml
+      - .github/workflows/probe-cloudflare.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npx wrangler@4 deploy --config scripts/probe-wrangler.toml
+      - run: curl --fail --silent --show-error --retry 2 --max-time 40 https://resale-radar-access-probe.v039ro73.workers.dev
+      - if: always()
+        run: npx wrangler@4 delete --config scripts/probe-wrangler.toml --force

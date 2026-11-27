@@ -19,10 +19,12 @@ async def main():
                 'title': await page.title(),
                 'listing_cards': await page.locator('[data-marker="item"]').count(),
                 'structured_prices': await page.locator('[itemprop="price"]').count(),
-                'blocked': any(s in text.lower() for s in ['доступ ограничен', 'слишком много запросов', 'проверка браузера', 'подтвердите, что вы', 'captcha']),
+                'blocked': (response is not None and response.status in (403, 429, 439)) or any(s in text.lower() for s in ['доступ ограничен', 'проблем с', 'слишком много запросов', 'проверка браузера', 'подтвердите, что вы', 'captcha']),
                 'body_excerpt': text[:500],
             }
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            if result['blocked'] or not result['listing_cards']:
+                raise RuntimeError('Cloud access did not return listing cards; collection is unavailable')
         except Exception as error:
             print(json.dumps({'error': str(error)}, ensure_ascii=False))
             raise
