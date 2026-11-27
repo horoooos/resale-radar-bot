@@ -24,6 +24,9 @@ jobs:
           - backend: egor
             repo: Egor01KKK/avito-parser
             ref: ababf028a4fe225982456f573c64e95dbec9c782
+          - backend: mobile
+            repo: Duff89/parser_avito
+            ref: 91a5399f79bf035d3eb919d66ada00545571c2f1
     steps:
       - uses: actions/checkout@v6
         with:
@@ -46,6 +49,8 @@ jobs:
         run: python -m camoufox fetch && python -m playwright install-deps firefox
       - if: matrix.backend == 'egor'
         run: pip install 'curl_cffi>=0.15.0'
+      - if: matrix.backend == 'mobile'
+        run: pip install curl_cffi requests loguru
       - name: Live upstream test
         env:
           BACKEND: ${{ matrix.backend }}

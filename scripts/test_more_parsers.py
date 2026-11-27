@@ -80,11 +80,50 @@ def egor():
         client.session.close()
 
 
+def mobile():
+    from urllib.parse import urlsplit
+    from loguru import logger
+    logger.remove()  # Do not log mobile URLs with application parameters.
+    converter = load('candidate_converter', 'parser/url_converter.py')
+    url = converter.AvitoUrlConverter(cache_path='/tmp/avito-url-diagnostic.json').convert(SEARCH)
+    parsed = urlsplit(url)
+    if parsed.scheme != 'https' or parsed.hostname not in ('m.avito.ru', 'www.avito.ru'):
+        raise ValueError('Converter returned an unexpected host')
+    base = types.ModuleType('parser.cookies.base')
+    base.CookiesProvider = type('CookiesProvider', (), {})
+    sys.modules['parser.cookies.base'] = base
+    proxy = load('parser.proxies.proxy', 'parser/proxies/proxy.py')
+    http = load('candidate_http', 'parser/http/client.py')
+    client = http.HttpClient(proxy.NoProxy(), max_retries=1, retry_delay=0)
+    statuses = []
+    original = client._client.request
+    def track(*args, **kwargs):
+        response = original(*args, **kwargs)
+        statuses.append(response.status_code)
+        return response
+    client._client.request = track
+    try:
+        payload = client.request('GET', url).json()
+        def count(value):
+            if isinstance(value, list):
+                return sum(count(item) for item in value)
+            if isinstance(value, dict):
+                if value.get('title') and value.get('id') and ('price' in value or 'priceDetailed' in value):
+                    return 1
+                return sum(count(item) for item in value.values())
+            return 0
+        return {'cards': count(payload), 'statuses': statuses}
+    except Exception as error:
+        return {'cards': 0, 'statuses': statuses, 'error': type(error).__name__}
+    finally:
+        client._client.close()
+
+
 if __name__ == '__main__':
     logging.disable(logging.CRITICAL)
     backend = sys.argv[1]
     try:
-        result = asyncio.run(case()) if backend == 'case' else camoufox() if backend == 'camoufox' else egor()
+        result = asyncio.run(case()) if backend == 'case' else camoufox() if backend == 'camoufox' else mobile() if backend == 'mobile' else egor()
         print(json.dumps({'backend': backend, **result}, ensure_ascii=False), flush=True)
         sys.exit(0 if result['cards'] > 0 else 2)
     except Exception as error:
