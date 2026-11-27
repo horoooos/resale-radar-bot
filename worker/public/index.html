@@ -70,11 +70,16 @@
       </section>
       <section data-page="service" hidden>
         <div class="plan-card"><span class="plan-label">ВСЕ ФУНКЦИИ</span><h2>Бесплатный <strong>0 ₽</strong></h2><p>Без подписки и платных API</p><ul><li>Радары с вашими условиями</li><li>Описание, состояние и доставка</li><li>Оценка Avito и собственные аналоги</li><li>Расчёт прибыли и учёт сделок</li><li>Уведомления в Telegram</li></ul></div>
-        <div class="service-panel"><h3>Облачный сбор</h3><p>Расписание каждые 5 минут. GitHub может задерживать запуск, Avito — ограничивать доступ.</p><p>За проход: до 20 находок, до 5 новых описаний и до 2 моделей для изучения рынка. Несколько радаров проверяются по очереди.</p><button class="deal-open" type="button" data-tab="searches">Настроить мои поиски</button></div>
+        <div class="service-panel"><h3>Облачный сбор</h3><p>Расписание каждые 5 минут. GitHub может задерживать запуск, Avito — ограничивать доступ.</p><p>Мобильные Firefox и резервный Chrome. При отказе — пауза и переключение. Собранные данные сохраняются.</p><p>За проход: до 20 находок, до 5 новых описаний и до 2 моделей для изучения рынка. Несколько радаров проверяются по очереди.</p><button class="deal-open" type="button" data-tab="searches">Настроить мои поиски</button></div>
         <footer>Расчёт является оценкой по объявлениям, а не гарантией прибыли. Данные продавца нужно проверять при покупке.</footer>
       </section>
     </main>
-    <nav class="bottom-nav" aria-label="Разделы приложения"><button type="button" class="active" data-tab="finds"><span>⌖</span>Находки</button><button type="button" data-tab="searches"><span>⌕</span>Поиски</button><button type="button" data-tab="trades"><span>↗</span>Сделки</button><button type="button" data-tab="service"><span>☆</span>Сервис</button></nav>
+    <nav class="bottom-nav" aria-label="Разделы приложения">
+      <button type="button" class="active" data-tab="finds"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/><path d="M12 1v5m0 12v5M1 12h5m12 0h5"/></svg>Находки</button>
+      <button type="button" data-tab="searches"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6"/></svg>Поиски</button>
+      <button type="button" data-tab="trades"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 18 6-7 5 3 7-10M14 4h7v7"/></svg>Сделки</button>
+      <button type="button" data-tab="service"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 3 6.5 7 1-5 5 1.2 7-6.2-3.4-6.2 3.4 1.2-7-5-5 7-1z"/></svg>Тариф</button>
+    </nav>
 
     <dialog id="watch-modal">
       <form id="watch-form" method="dialog">

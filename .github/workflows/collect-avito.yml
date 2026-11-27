@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '*/5 * * * *'
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: collect-avito
   cancel-in-progress: false
@@ -37,3 +37,9 @@ jobs:
           WORKER_URL: ${{ secrets.WORKER_URL }}
           COLLECTOR_TOKEN: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
         run: xvfb-run -a python scripts/collect_avito.py
+      - name: Publish daily operational snapshot
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COLLECT_RESULT: ${{ job.status }}
+        run: node scripts/publish_collector_health.mjs

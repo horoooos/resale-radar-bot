@@ -2,3 +2,4 @@
 .deal-card .fact-chips,.deal-card .status-neutral,.deal-card .status-good{display:none}.deal-card .deal-details{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}.trade-row .status-good{display:block}#deal-modal .status-good{display:initial}.deal-card .deal-profit{display:flex}
 .summary-cell strong{overflow-wrap:anywhere}.analysis-line b{max-width:60%;overflow-wrap:anywhere;text-align:right}.profit-chart .screen-subtitle{align-self:center}.trade-row:focus-visible{outline:2px solid var(--lime)}
 .bottom-nav{left:0;right:0;transform:none;width:100%;max-width:560px;margin:0 auto;backdrop-filter:none}
+.bottom-nav svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
