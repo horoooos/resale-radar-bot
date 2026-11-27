@@ -42,6 +42,7 @@ function renderWatches(watches) {
         <span class="chip">ROI от ${watch.min_roi}%</span>
         <span class="chip">${watch.expected_sale_price ? `продажа ${rubles.format(watch.expected_sale_price)} ₽` : "автооценка"}</span>
       </div>
+      ${watch.scanned_at ? `<p class="field-note" style="margin:12px 0 0">${watch.scan_error ? `Проверка не удалась: ${escapeHtml(watch.scan_error)}` : `Проверено: ${escapeHtml(watch.scanned_at)} UTC · ${watch.item_count} товаров`}</p>` : ""}
       ${watch.source_url ? `<button class="source-link" type="button" data-source-url="${escapeHtml(watch.source_url)}">Открыть поиск Avito ↗</button>` : ""}
     </article>`).join("");
 }
@@ -94,8 +95,8 @@ async function load() {
     renderWatches(data.watches);
     renderDeals(data.deals || []);
     $("#source-status").textContent = data.source_connected
-      ? "Источник подключён · проверка каждые 5 минут · уведомления в чат включены"
-      : "Автопоиск ещё не подключён. Сейчас можно проверить объявление вручную. Ссылка Avito сохраняется как закладка поиска.";
+      ? "Источник подключён · проверка каждый час · уведомления в чат включены"
+      : "Сохраните ссылку поиска Avito. Облачная проверка выполняется каждый час; результат появится на карточке фильтра.";
   } catch (error) {
     $("#watch-list").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
     toast(error.message, true);

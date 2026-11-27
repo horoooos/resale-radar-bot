@@ -139,8 +139,9 @@ async function api(request, env, url) {
     if (request.method === "GET" && url.pathname === "/api/dashboard") {
       const [{ results: watches }, { results: deals }, listingCount, notificationCount] = await Promise.all([
         env.DB.prepare(
-          `SELECT w.*, s.source_url
+          `SELECT w.*, s.source_url, st.scanned_at, st.item_count, st.error AS scan_error
            FROM watches w LEFT JOIN watch_sources s ON s.watch_id = w.id
+           LEFT JOIN scan_status st ON st.watch_id = w.id
            WHERE w.chat_id = ? AND w.enabled = 1 ORDER BY w.id DESC`,
         ).bind(chatId).all(),
         env.DB.prepare(
@@ -161,7 +162,8 @@ async function api(request, env, url) {
         ok: true,
         user: { id: user.id, first_name: user.first_name || "" },
         watches,
-        source_connected: Boolean(env.LISTINGS_FEED_URL),
+        source_connected: Boolean(env.LISTINGS_FEED_URL) || watches.some(w => w.scanned_at && !w.scan_error),
+        scan_interval: "каждый час",
         deals: deals.map((deal) => ({
           ...deal,
           image_url: JSON.parse(deal.raw_json || "{}").image_url || "",
@@ -370,15 +372,18 @@ async function comparablePrices(env, listing) {
   return results.map((row) => Number(row.price));
 }
 
-async function processListings(env, input) {
-  const { results: watches } = await env.DB.prepare("SELECT * FROM watches WHERE enabled = 1").all();
+async function processListings(env, input, sourceWatch = null) {
+  const watches = sourceWatch ? [sourceWatch] : (await env.DB.prepare("SELECT * FROM watches WHERE enabled = 1").all()).results;
+  const validated = input.map(validateListing);
+  for (const listing of validated) await saveListing(env, listing);
   let sent = 0;
-  for (const raw of input) {
-    const listing = validateListing(raw);
+  for (const listing of validated) {
     const prices = await comparablePrices(env, listing);
     await saveListing(env, listing);
     for (const watch of watches) {
-      if (!matches(listing, watch)) continue;
+      if (sourceWatch) {
+        if (watch.max_buy_price != null && listing.price > watch.max_buy_price) continue;
+      } else if (!matches(listing, watch)) continue;
       const alreadySent = await env.DB.prepare(
         "SELECT 1 AS found FROM notifications WHERE watch_id = ? AND external_id = ?",
       )
@@ -525,9 +530,39 @@ async function scanFeed(env) {
   await processListings(env, items);
 }
 
+async function collector(request, env, url) {
+  const token = request.headers.get("X-Collector-Token") || "";
+  if (!env.TELEGRAM_WEBHOOK_SECRET || !safeEqual(token, env.TELEGRAM_WEBHOOK_SECRET)) {
+    return json({ ok: false }, 401);
+  }
+  if (request.method === "GET" && url.pathname === "/collector/watches") {
+    const { results } = await env.DB.prepare(
+      `SELECT w.*, s.source_url FROM watches w JOIN watch_sources s ON s.watch_id=w.id
+       WHERE w.enabled=1 ORDER BY w.id LIMIT 10`,
+    ).all();
+    return json({ ok: true, watches: results.filter(w => isAllowed(w.chat_id, env)) });
+  }
+  if (request.method === "POST" && url.pathname === "/collector/results") {
+    const body = await request.json();
+    const watch = await env.DB.prepare("SELECT * FROM watches WHERE id=? AND enabled=1")
+      .bind(Number(body.watch_id)).first();
+    if (!watch || !isAllowed(watch.chat_id, env)) return json({ ok: false }, 404);
+    const items = Array.isArray(body.items) ? body.items.slice(0, 60) : [];
+    let sent = 0;
+    if (!body.error) sent = await processListings(env, items, watch);
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO scan_status(watch_id, scanned_at, item_count, error)
+       VALUES (?, CURRENT_TIMESTAMP, ?, ?)`,
+    ).bind(watch.id, items.length, body.error ? String(body.error).slice(0, 300) : null).run();
+    return json({ ok: true, count: items.length, sent });
+  }
+  return json({ ok: false }, 404);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/collector/")) return collector(request, env, url);
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
       return webhook(request, env, ctx);
     }
