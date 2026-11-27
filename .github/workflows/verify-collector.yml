@@ -1,0 +1,23 @@
+name: Verify collected listing photos
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/verify_collector_storage.mjs
+      - .github/workflows/verify-collector.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check stored photo and public image delivery
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: node scripts/verify_collector_storage.mjs
