@@ -8,10 +8,11 @@ import json
 import os
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 from camoufox.async_api import AsyncCamoufox
 
-BASE = os.environ['WORKER_URL'].rstrip('/')
+BASE = os.environ['WORKER_URL'].strip().rstrip('/')
 TOKEN = os.environ['COLLECTOR_TOKEN']
 
 
@@ -19,9 +20,14 @@ def api(path, body=None):
     encoded = json.dumps(body).encode() if body is not None else None
     req = Request(BASE + path, data=encoded, headers={
         'X-Collector-Token': TOKEN, 'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (compatible; ResaleRadarCollector/1.0)',
     })
-    with urlopen(req, timeout=75) as response:
-        result = json.load(response)
+    try:
+        with urlopen(req, timeout=75) as response:
+            result = json.load(response)
+    except HTTPError as error:
+        detail = error.read(200).decode('utf-8', errors='replace')
+        raise RuntimeError(f'Collector HTTP {error.code}: {detail}') from None
     if not result.get('ok'):
         raise RuntimeError('Collector API rejected request')
     return result

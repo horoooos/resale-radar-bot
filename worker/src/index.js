@@ -384,7 +384,6 @@ async function processListings(env, input, sourceWatch = null) {
   let sent = 0;
   for (const listing of validated) {
     const prices = await comparablePrices(env, listing);
-    await saveListing(env, listing);
     for (const watch of watches) {
       if (sourceWatch) {
         if (watch.max_buy_price != null && listing.price > watch.max_buy_price) continue;
