@@ -1,0 +1,30 @@
+name: Workbench checks
+on:
+  workflow_dispatch:
+  push:
+    paths: ['worker/**', 'tests/**', '.github/workflows/workbench-checks.yml']
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/worker-deals.test.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.57.0
+      - run: python tests/ui_workbench.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workbench-ui
+          path: ui-artifacts/
+          retention-days: 2
