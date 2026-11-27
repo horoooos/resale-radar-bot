@@ -110,6 +110,103 @@ function numberField(value, name, { nullable = false, minimum = 0 } = {}) {
   return parsed;
 }
 
+function watchOptions(body = {}) {
+  const flag = (key, fallback = false) => body[key] === undefined ? fallback : [true, 'true', 'on', 1, '1'].includes(body[key]);
+  const num = (key, fallback, max = 1000000) => {
+    const value = body[key] === '' || body[key] == null ? fallback : Number(body[key]);
+    if (!Number.isFinite(value) || value < 0 || value > max) throw new Error(`Проверьте настройку ${key}`);
+    return value;
+  };
+  return { min_buy_price: num('min_buy_price', 0), delivery_only: flag('delivery_only'), private_only: flag('private_only'),
+    exclude_defects: flag('exclude_defects', true), require_details: flag('require_details', true),
+    battery_min: num('battery_min', 0, 100), min_comparables: Math.max(3, num('min_comparables', 5, 50)),
+    repair_costs: num('repair_costs', 0), delivery_costs: num('delivery_costs', 0), fixed_costs: num('fixed_costs', 500),
+    sale_fee_percent: num('sale_fee_percent', 5, 100), reserve_percent: num('reserve_percent', 5, 100),
+    stop_words: String(body.stop_words || '').trim().slice(0, 500) };
+}
+
+function inspectListing(listing) {
+  const text = `${listing.title}\n${listing.description || ''}`.toLowerCase().replaceAll('ё', 'е');
+  const rules = [
+    ['Блокировка / учётная запись', /(?:заблокирован|заблокирована|обход\s+icloud|на\s+icloud|не\s+помню\s+(?:пароль|apple)|mdm\s+lock)/iu],
+    ['На запчасти / не работает', /(?:на\s+запчасти|не\s+включается|не\s+работает|неисправен|донор|не\s+ловит\s+сеть)/iu],
+    ['Повреждения', /(?:разбит|трещин[аы]|полос[аы]\s+на\s+экране|пятн[ао]\s+на\s+экране|после\s+воды|утоплен)/iu],
+    ['Ремонт / замена деталей', /(?:менял[аи]?\s+(?:экран|дисплей|аккумулятор)|замен[ае]\s+(?:экран|дисплей|акб)|неоригинальн|после\s+ремонта|требует\s+ремонта)/iu],
+    ['Предоплата / условия сделки', /(?:только\s+предоплата|перевод\s+до\s+отправки|без\s+проверки)/iu],
+  ];
+  const risks = rules.flatMap(([label, regex]) => {
+    const match = regex.exec(text);
+    if (!match) return [];
+    const before = text.slice(Math.max(0, match.index - 15), match.index);
+    if (/(?:без|нет|не было|не)\s*$/iu.test(before) && !match[0].startsWith('не ')) return [];
+    return [{ label, evidence: text.slice(Math.max(0, match.index - 25), match.index + match[0].length + 65).trim() }];
+  });
+  const battery = /(?:акб|аккумулятор|батаре[яи]|battery)[^\d\n]{0,25}(\d{2,3})\s*%/iu.exec(text);
+  const batteryPercent = battery && Number(battery[1]) <= 100 ? Number(battery[1]) : null;
+  if (batteryPercent !== null && batteryPercent < 80) risks.push({ label: 'Изношенный аккумулятор', evidence: `${batteryPercent}% по описанию` });
+  let delivery = typeof listing.delivery === 'boolean' ? listing.delivery : null;
+  if (/без\s+доставки|доставк[аи]\s+нет|не\s+отправляю|только\s+самовывоз/iu.test(listing.description || '')) delivery = false;
+  else if (delivery === null && /отправлю\s+авито|авито\s+доставк[аой]|отправляю\s+доставкой/iu.test(listing.description || '')) delivery = true;
+  return { risks, battery: batteryPercent, delivery, condition: listing.condition || 'Не указано',
+    details_checked: listing.detail_status === 'complete' && String(listing.description || '').trim().length >= 15,
+    description_checked_at: listing.details_checked_at || null };
+}
+
+function assessListing(listing, watch, samples) {
+  const options = watch.options || watchOptions();
+  const inspection = inspectListing(listing);
+  const reasons = [];
+  if (watch.max_buy_price && listing.price > watch.max_buy_price) reasons.push('Цена выше бюджета');
+  if (listing.price < options.min_buy_price) reasons.push('Цена ниже заданного диапазона');
+  if (options.require_details && !inspection.details_checked) reasons.push('Полное описание ещё не проверено');
+  if (options.delivery_only && inspection.delivery !== true) reasons.push('Доставка не подтверждена');
+  if (options.private_only && listing.seller_type !== 'private') reasons.push('Частный продавец не подтверждён');
+  if (options.battery_min && (inspection.battery === null || inspection.battery < options.battery_min)) reasons.push('Зарядная ёмкость АКБ не подтверждена или ниже порога');
+  if (options.exclude_defects && inspection.risks.length) reasons.push('Найдены признаки риска в описании');
+  const haystack = `${listing.title} ${listing.description || ''}`.toLowerCase();
+  for (const word of options.stop_words.split(',').map(w => w.trim().toLowerCase()).filter(Boolean)) {
+    if (haystack.includes(word)) reasons.push(`Стоп-слово: ${word}`);
+  }
+  const key = comparableKey(listing.title);
+  const conditionGroup = item => {
+    const state=String(item.condition||'').toLowerCase();
+    const text=String(item.description||'').toLowerCase();
+    if (/б\s*\/\s*у|подержан/iu.test(state)) return 'used';
+    if (/новый|новое/iu.test(state) && !/как\s+нов/iu.test(state)) return 'new';
+    if (/не\s+(?:использовал|пользовал|вскрывал)|запечатан/iu.test(text)) return 'new';
+    if (/б\s*\/\s*у|как\s+нов|пользовал|в\s+использовании/iu.test(text)) return 'used';
+    return 'unknown';
+  };
+  const candidateCondition=conditionGroup(listing);
+  if (!watch.expected_sale_price && candidateCondition==='unknown') reasons.push('Состояние телефона не подтверждено описанием или параметрами');
+  const seen = new Set([String(listing.external_id)]);
+  const comparable = samples.filter(sample => {
+    if (seen.has(String(sample.external_id)) || comparableKey(sample.title) !== key) return false;
+    seen.add(String(sample.external_id));
+    return sample.detail_status === 'complete' && conditionGroup(sample) === candidateCondition && inspectListing(sample).risks.length === 0 && sample.price > 0;
+  });
+  const prices = comparable.map(s => s.price).sort((a,b) => a-b);
+  const percentile = p => prices.length ? prices[Math.floor((prices.length-1)*p)] : null;
+  const median = percentile(.5);
+  const fair = prices.filter(p => p >= median * .5 && p <= median * 1.8);
+  const memoryKnown = !key.endsWith('|unknown');
+  const expected = watch.expected_sale_price || (memoryKnown && fair.length >= options.min_comparables ? marketPrice(fair) : null);
+  if (!watch.expected_sale_price && !memoryKnown) reasons.push('Не подтверждён объём памяти для точного сравнения');
+  if (!expected) reasons.push(`Недостаточно проверенных аналогов: ${fair.length}/${options.min_comparables}`);
+  const costs = expected ? { commission: Math.round(expected * options.sale_fee_percent / 100), reserve: Math.round(expected * options.reserve_percent / 100),
+    repair: options.repair_costs, delivery: options.delivery_costs, other: options.fixed_costs } : null;
+  const totalCosts = costs ? Object.values(costs).reduce((a,b)=>a+b,0) : null;
+  const profit = expected ? expected - listing.price - totalCosts : null;
+  const roi = profit === null ? null : profit / listing.price * 100;
+  if (profit !== null && profit < watch.min_profit) reasons.push('Прибыль ниже порога');
+  if (roi !== null && roi < watch.min_roi) reasons.push('ROI ниже порога');
+  return { ...inspection, model_key: key, expected, profit, roi, costs, total_costs: totalCosts,
+    market: { count: fair.length, low: percentile(.25), median, high: percentile(.75), source: 'Цены предложений, не завершённых продаж',
+      examples: comparable.filter(s => fair.includes(s.price)).slice(0,5).map(s => ({ title:s.title, price:s.price, url:s.url })) },
+    confidence: watch.expected_sale_price ? 'цена задана вами' : fair.length >= 10 ? 'достаточная выборка' : fair.length >= options.min_comparables ? 'небольшая выборка' : 'мало данных',
+    eligible: reasons.length === 0, reasons, checked_at: new Date().toISOString() };
+}
+
 function avitoSearchUrl(value) {
   const input = String(value || "").trim();
   if (!input) return null;
@@ -139,20 +236,26 @@ async function api(request, env, url) {
     if (request.method === "GET" && url.pathname === "/api/dashboard") {
       const [{ results: watches }, { results: deals }, listingCount, notificationCount] = await Promise.all([
         env.DB.prepare(
-          `SELECT w.*, s.source_url, st.scanned_at, st.item_count, st.error AS scan_error
+          `SELECT w.*, s.source_url, o.options_json, st.scanned_at, st.item_count, st.error AS scan_error
            FROM watches w LEFT JOIN watch_sources s ON s.watch_id = w.id
+           LEFT JOIN watch_options o ON o.watch_id=w.id
            LEFT JOIN scan_status st ON st.watch_id = w.id
-           WHERE w.chat_id = ? AND w.enabled = 1 ORDER BY w.id DESC`,
+           WHERE w.chat_id = ? ORDER BY w.id DESC`,
         ).bind(chatId).all(),
         env.DB.prepare(
           `SELECT l.external_id, l.title, l.price, l.url, l.category, l.location, l.published_at,
-                  l.raw_json, d.expected, d.costs, d.profit, d.roi, d.confidence, wl.found_at AS created_at
+                  json_remove(l.raw_json,'$.image_data') AS raw_json,
+                  json_extract(l.raw_json,'$.image_data') != '' AS has_photo,
+                  a.payload AS assessment_json, COALESCE(ls.favorite,0) AS favorite, COALESCE(ls.dismissed,0) AS dismissed,
+                  d.expected, d.costs, d.profit, d.roi, d.confidence, wl.found_at AS created_at
            FROM watch_listings wl
            JOIN watches w ON w.id = wl.watch_id
            JOIN listings l ON l.external_id = wl.external_id
            LEFT JOIN deal_results_v2 d ON d.watch_id=wl.watch_id AND d.external_id=wl.external_id
+           LEFT JOIN assessments a ON a.watch_id=wl.watch_id AND a.external_id=wl.external_id
+           LEFT JOIN listing_states ls ON ls.chat_id=w.chat_id AND ls.external_id=wl.external_id
            WHERE w.chat_id = ?
-           ORDER BY wl.found_at DESC LIMIT 50`,
+           ORDER BY wl.found_at DESC LIMIT 80`,
         ).bind(chatId).all(),
         env.DB.prepare("SELECT COUNT(*) AS count FROM listings").first(),
         env.DB.prepare(
@@ -162,18 +265,28 @@ async function api(request, env, url) {
       return json({
         ok: true,
         user: { id: user.id, first_name: user.first_name || "" },
-        watches,
+        watches: watches.map(w=>({...w, options: watchOptions(JSON.parse(w.options_json || '{}')), options_json: undefined})),
         source_connected: Boolean(env.LISTINGS_FEED_URL) || watches.some(w => w.scanned_at && !w.scan_error),
         scan_interval: "каждые 5 минут",
-        deals: deals.map((deal) => ({
-          ...deal,
-          image_url: JSON.parse(deal.raw_json || "{}").image_data ? `${env.APP_URL}/photo?id=${encodeURIComponent(deal.external_id)}` : photoUrl(JSON.parse(deal.raw_json || "{}").image_url || "", env),
-          raw_json: undefined,
-        })),
+        deals: deals.map((deal) => {
+          const raw = JSON.parse(deal.raw_json || '{}');
+          return { ...deal, description: raw.description || '', condition: raw.condition || '', seller_type: raw.seller_type || 'unknown',
+            analysis: deal.assessment_json ? JSON.parse(deal.assessment_json) : null,
+            image_url: deal.has_photo ? `${env.APP_URL}/photo?id=${encodeURIComponent(deal.external_id)}` : photoUrl(raw.image_url || '', env),
+            raw_json: undefined, assessment_json: undefined };
+        }),
         stats: { listings: Number(listingCount?.count || 0), alerts: Number(notificationCount?.count || 0) },
       });
     }
-    if (request.method === "POST" && url.pathname === "/api/watches") {
+    const editMatch = url.pathname.match(/^\/api\/watches\/(\d+)$/);
+    if (request.method === 'PATCH' && editMatch) {
+      const change = await request.clone().json();
+      if (typeof change.enabled === 'boolean') {
+        await env.DB.prepare('UPDATE watches SET enabled=? WHERE id=? AND chat_id=?').bind(change.enabled ? 1 : 0, Number(editMatch[1]), chatId).run();
+        return json({ok:true});
+      }
+    }
+    if ((request.method === "POST" && url.pathname === "/api/watches") || (request.method === 'PATCH' && editMatch)) {
       const body = await request.json();
       const sourceUrl = avitoSearchUrl(body.source_url);
       const queryInput = String(body.query || "").trim();
@@ -183,7 +296,13 @@ async function api(request, env, url) {
       const expected = numberField(body.expected_sale_price, "Цена перепродажи", { nullable: true, minimum: 1 });
       const minProfit = numberField(body.min_profit, "Минимальная прибыль", { minimum: 0 });
       const minRoi = numberField(body.min_roi, "Минимальный ROI", { minimum: 0 });
-      const result = await env.DB.prepare(
+      const options = watchOptions(body);
+      if (options.min_buy_price > maxPrice) throw new Error('Минимальная цена больше максимальной');
+      const watchId = editMatch ? Number(editMatch[1]) : null;
+      if (watchId && !await env.DB.prepare('SELECT id FROM watches WHERE id=? AND chat_id=?').bind(watchId, chatId).first()) return json({ok:false},404);
+      const result = watchId ? await env.DB.prepare(
+        'UPDATE watches SET query=?,category=?,max_buy_price=?,expected_sale_price=?,min_profit=?,min_roi=?,sale_fee_percent=?,fixed_costs=? WHERE id=? AND chat_id=?',
+      ).bind(query, String(body.category || '').trim() || null, Math.round(maxPrice), expected, minProfit, minRoi, options.sale_fee_percent, options.fixed_costs, watchId, chatId).run() : await env.DB.prepare(
         `INSERT INTO watches
          (chat_id, query, category, max_buy_price, expected_sale_price, min_profit, min_roi, sale_fee_percent, fixed_costs)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -195,15 +314,30 @@ async function api(request, env, url) {
         expected === null ? null : Math.round(expected),
         Math.round(minProfit),
         minRoi,
-        Number(env.DEFAULT_SALE_FEE_PERCENT || 5),
-        Number(env.DEFAULT_FIXED_COSTS || 500),
+        options.sale_fee_percent,
+        options.fixed_costs,
       ).run();
+      const savedId = watchId || result.meta.last_row_id;
+      await env.DB.prepare('INSERT OR REPLACE INTO watch_options(watch_id,options_json) VALUES (?,?)').bind(savedId, JSON.stringify(options)).run();
       if (sourceUrl) {
-        await env.DB.prepare("INSERT INTO watch_sources (watch_id, source_url) VALUES (?, ?)")
-          .bind(result.meta.last_row_id, sourceUrl)
+        await env.DB.prepare("INSERT OR REPLACE INTO watch_sources (watch_id, source_url) VALUES (?, ?)")
+          .bind(savedId, sourceUrl)
           .run();
       }
-      return json({ ok: true, id: result.meta.last_row_id }, 201);
+      return json({ ok: true, id: savedId }, watchId ? 200 : 201);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/listing-state') {
+      const body=await request.json();
+      const owned=await env.DB.prepare('SELECT 1 FROM watch_listings wl JOIN watches w ON w.id=wl.watch_id WHERE w.chat_id=? AND wl.external_id=? LIMIT 1').bind(chatId,String(body.external_id)).first();
+      if (!owned) return json({ok:false},404);
+      const column = body.action === 'dismissed' ? 'dismissed' : 'favorite';
+      await env.DB.prepare(`INSERT INTO listing_states(chat_id,external_id,${column}) VALUES (?,?,?) ON CONFLICT(chat_id,external_id) DO UPDATE SET ${column}=excluded.${column}`).bind(chatId,String(body.external_id),body.value?1:0).run();
+      return json({ok:true});
+    }
+    const historyMatch=url.pathname.match(/^\/api\/history\/([^/]+)$/);
+    if(request.method==='GET' && historyMatch){
+      const {results}=await env.DB.prepare('SELECT price,checked_at FROM price_history WHERE external_id=? AND EXISTS (SELECT 1 FROM watch_listings wl JOIN watches w ON w.id=wl.watch_id WHERE wl.external_id=price_history.external_id AND w.chat_id=?) ORDER BY checked_at DESC LIMIT 20').bind(decodeURIComponent(historyMatch[1]),chatId).all();
+      return json({ok:true,history:results});
     }
     const deleteMatch = url.pathname.match(/^\/api\/watches\/(\d+)$/);
     if (request.method === "DELETE" && deleteMatch) {
@@ -228,7 +362,11 @@ async function api(request, env, url) {
         ...body,
         external_id: body.external_id || `manual-${chatId}-${Date.now()}`,
       });
-      const sent = await processListings(env, [listing]);
+      const watch=await env.DB.prepare('SELECT * FROM watches WHERE id=? AND chat_id=? AND enabled=1').bind(Number(body.watch_id),chatId).first();
+      if(!watch) throw new Error('Выберите активный радар для проверки');
+      const stored=await env.DB.prepare('SELECT options_json FROM watch_options WHERE watch_id=?').bind(watch.id).first();
+      watch.options=watchOptions(JSON.parse(stored?.options_json||'{}'));
+      const sent = await processListings(env, [listing],watch);
       return json({ ok: true, sent }, 201);
     }
     return json({ ok: false, error: "Маршрут не найден" }, 404);
@@ -248,6 +386,12 @@ function validateListing(item) {
     location: String(item.location || "").trim(),
     image_url: String(item.image_url || "").trim(),
     image_data: String(item.image_data || ""),
+    description: String(item.description || '').trim().slice(0,12000),
+    condition: String(item.condition || '').slice(0,150),
+    delivery: typeof item.delivery === 'boolean' ? item.delivery : null,
+    seller_type: ['private','business'].includes(item.seller_type) ? item.seller_type : 'unknown',
+    detail_status: item.detail_status === 'complete' ? 'complete' : 'pending',
+    details_checked_at: item.details_checked_at || (item.detail_status==='complete' ? new Date().toISOString() : null),
     published_at: String(item.published_at || new Date().toISOString()),
   };
   if (!listing.external_id || listing.title.length < 2) throw new Error("нет external_id или title");
@@ -263,6 +407,8 @@ function validateListing(item) {
 }
 
 async function saveListing(env, listing) {
+  await env.DB.prepare('INSERT INTO price_history(external_id,price) SELECT ?,? WHERE NOT EXISTS (SELECT 1 FROM listings WHERE external_id=? AND price=?)')
+    .bind(listing.external_id, listing.price, listing.external_id, listing.price).run();
   await env.DB.prepare(
     `INSERT INTO listings
       (external_id, title, price, url, category, location, published_at, raw_json)
@@ -270,7 +416,9 @@ async function saveListing(env, listing) {
      ON CONFLICT(external_id) DO UPDATE SET
       title=excluded.title, price=excluded.price, url=excluded.url,
       category=excluded.category, location=excluded.location,
-      published_at=excluded.published_at, raw_json=excluded.raw_json`,
+      published_at=excluded.published_at,
+      raw_json=CASE WHEN json_extract(excluded.raw_json,'$.image_data') != '' THEN excluded.raw_json
+        ELSE json_set(excluded.raw_json,'$.image_data',COALESCE(json_extract(listings.raw_json,'$.image_data'),'')) END`,
   )
     .bind(
       listing.external_id,
@@ -340,6 +488,8 @@ ROI: <b>${result.roi.toFixed(1)}%</b>
 Надёжность оценки: ${result.confidence} (${result.count} аналогов)
 Город: ${escapeHtml(listing.location || "не указано")}
 
+${escapeHtml(listing.analysis_caption || '')}
+
 <a href="${escapeHtml(listing.url)}">Открыть объявление</a>
 
 ⚠️ Проверьте состояние, комплектность, документы и продавца лично. Расчёт — оценка, а не гарантия прибыли.`;
@@ -379,8 +529,13 @@ async function comparablePrices(env, listing) {
   return results.filter(row => comparableKey(row.title) === key).map(row => Number(row.price));
 }
 
+async function marketSamples(env, listing) {
+  const {results} = await env.DB.prepare("SELECT payload FROM market_samples WHERE model_key=? AND checked_at > datetime('now','-7 days') ORDER BY checked_at DESC LIMIT 100").bind(comparableKey(listing.title)).all();
+  return results.map(row=>JSON.parse(row.payload));
+}
+
 async function processListings(env, input, sourceWatch = null) {
-  const watches = sourceWatch ? [sourceWatch] : (await env.DB.prepare("SELECT * FROM watches WHERE enabled = 1").all()).results;
+  const watches = sourceWatch ? [sourceWatch] : (await env.DB.prepare("SELECT w.*,o.options_json FROM watches w LEFT JOIN watch_options o ON o.watch_id=w.id WHERE w.enabled=1").all()).results.map(w=>({...w,options:watchOptions(JSON.parse(w.options_json||'{}'))}));
   const validated = input.map(validateListing);
   for (const listing of validated) {
     await saveListing(env, listing);
@@ -389,23 +544,25 @@ async function processListings(env, input, sourceWatch = null) {
   }
   let sent = 0;
   for (const listing of validated) {
-    const prices = await comparablePrices(env, listing);
+    const samples = await marketSamples(env, listing);
     for (const watch of watches) {
-      if (sourceWatch) {
-        if (watch.max_buy_price != null && listing.price > watch.max_buy_price) continue;
-      } else if (!matches(listing, watch)) continue;
+      if (!sourceWatch && !matches(listing, watch)) continue;
+      const analysis = assessListing(listing, watch, samples);
+      await env.DB.prepare('INSERT OR REPLACE INTO assessments(watch_id,external_id,payload) VALUES (?,?,?)')
+        .bind(watch.id,listing.external_id,JSON.stringify(analysis)).run();
+      if (!analysis.eligible) continue;
       const alreadySent = await env.DB.prepare(
         "SELECT 1 AS found FROM notifications WHERE watch_id = ? AND external_id = ?",
       )
         .bind(watch.id, listing.external_id)
         .first();
       if (alreadySent) continue;
-      if (!watch.expected_sale_price && prices.length < Number(env.MIN_COMPARABLES || 3)) continue;
-      const result = score(listing, watch, prices);
-      if (!result) continue;
+      const result = { expected:analysis.expected, costs:analysis.total_costs, profit:analysis.profit, roi:analysis.roi, confidence:analysis.confidence, count:analysis.market.count };
       if (!sourceWatch) await env.DB.prepare("INSERT OR IGNORE INTO watch_listings(watch_id,external_id) VALUES (?,?)")
         .bind(watch.id, listing.external_id).run();
-      await sendDeal(env, watch.chat_id, listing, result);
+      const deliveryLabel = analysis.delivery === true ? 'доступна по карточке/описанию' : analysis.delivery === false ? 'нет' : 'не подтверждена';
+      const enhanced = { ...listing, title:listing.title, analysis_caption: `Доставка: ${deliveryLabel}\nСостояние по продавцу: ${listing.condition || 'не указано'}\nРиски: ${analysis.risks.map(r=>r.label).join(', ') || 'по проверенному тексту не выявлены'}\nРезерв расходов включён.` };
+      await sendDeal(env, watch.chat_id, enhanced, result);
       await env.DB.prepare(
         `INSERT OR REPLACE INTO deal_results_v2
          (watch_id, external_id, expected, costs, profit, roi, confidence, created_at)
@@ -575,18 +732,36 @@ async function collector(request, env, url) {
   }
   if (request.method === "GET" && url.pathname === "/collector/watches") {
     const { results } = await env.DB.prepare(
-      `SELECT w.*, s.source_url FROM watches w JOIN watch_sources s ON s.watch_id=w.id
+      `SELECT w.*, s.source_url, o.options_json FROM watches w JOIN watch_sources s ON s.watch_id=w.id
+       LEFT JOIN watch_options o ON o.watch_id=w.id
        LEFT JOIN scan_status st ON st.watch_id=w.id
        WHERE w.enabled=1 ORDER BY COALESCE(st.scanned_at, '1970-01-01') ASC, w.id LIMIT 1`,
     ).all();
-    return json({ ok: true, watches: results.filter(w => isAllowed(w.chat_id, env)) });
+    const allowed=results.filter(w => isAllowed(w.chat_id, env));
+    const cache=allowed.length ? await env.DB.prepare("SELECT l.external_id,json_remove(l.raw_json,'$.image_data') AS payload FROM listings l JOIN watch_listings wl ON wl.external_id=l.external_id WHERE wl.watch_id=? ORDER BY wl.found_at DESC LIMIT 100").bind(allowed[0].id).all() : {results:[]};
+    const keys=await env.DB.prepare("SELECT model_key,payload FROM market_samples WHERE checked_at > datetime('now','-6 hours') LIMIT 300").all();
+    const counts={};
+    for(const row of keys.results){const sample=JSON.parse(row.payload);if(sample.detail_status==='complete'&&!inspectListing(sample).risks.length) counts[row.model_key]=(counts[row.model_key]||0)+1;}
+    return json({ ok: true, watches: allowed.map(w=>({...w,options:watchOptions(JSON.parse(w.options_json||'{}'))})), detail_cache: cache.results.map(r=>JSON.parse(r.payload)), market_keys: Object.keys(counts).filter(k=>counts[k]>=6) });
+  }
+  if (request.method === 'POST' && url.pathname === '/collector/market') {
+    const body=await request.json();
+    const items=(Array.isArray(body.items)?body.items:[]).slice(0,5).map(validateListing);
+    for (const item of items) {
+      item.image_data='';
+      await env.DB.prepare('INSERT OR REPLACE INTO market_samples(external_id,model_key,payload,checked_at) VALUES (?,?,?,CURRENT_TIMESTAMP)')
+        .bind(item.external_id,comparableKey(item.title),JSON.stringify(item)).run();
+    }
+    return json({ok:true,count:items.length});
   }
   if (request.method === "POST" && ["/collector/results", "/collector/status"].includes(url.pathname)) {
     const body = await request.json();
     const watch = await env.DB.prepare("SELECT * FROM watches WHERE id=? AND enabled=1")
       .bind(Number(body.watch_id)).first();
     if (!watch || !isAllowed(watch.chat_id, env)) return json({ ok: false }, 404);
-    const items = Array.isArray(body.items) ? body.items.slice(0, 5) : [];
+    const storedOptions=await env.DB.prepare('SELECT options_json FROM watch_options WHERE watch_id=?').bind(watch.id).first();
+    watch.options=watchOptions(JSON.parse(storedOptions?.options_json||'{}'));
+    const items = Array.isArray(body.items) ? body.items.slice(0, 3) : [];
     let sent = 0;
     if (!body.error) sent = await processListings(env, items, watch);
     await env.DB.prepare(

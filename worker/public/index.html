@@ -46,6 +46,14 @@
       <section class="deals-section">
         <div class="section-head"><div><p class="eyebrow">НАЙДЕНО РАДАРОМ</p><h2>Объявления и выгодные сделки</h2></div></div>
         <p id="source-status" class="field-note">Проверяем источник объявлений…</p>
+        <div class="feed-tools">
+          <input id="feed-search" placeholder="Поиск по модели или описанию" aria-label="Поиск в объявлениях" />
+          <div class="grid-two">
+            <select id="feed-mode" aria-label="Отбор объявлений"><option value="all">Все найденные</option><option value="eligible">Прошли фильтр прибыли</option><option value="favorite">Избранное</option><option value="delivery">Есть доставка</option><option value="clean">Без найденных рисков</option><option value="pending">Ожидают проверки</option><option value="hidden">Скрытые</option></select>
+            <select id="feed-sort" aria-label="Сортировка"><option value="new">Сначала новые</option><option value="profit">По прибыли</option><option value="price">Дешевле</option><option value="roi">По ROI</option></select>
+          </div>
+          <div class="grid-two"><input id="feed-min" type="number" min="0" placeholder="Цена от, ₽" aria-label="Минимальная цена" /><input id="feed-max" type="number" min="0" placeholder="Цена до, ₽" aria-label="Максимальная цена" /></div>
+        </div>
         <div id="deal-list" class="deal-list" aria-live="polite"></div>
       </section>
 
@@ -59,6 +67,7 @@
 
     <dialog id="watch-modal">
       <form id="watch-form" method="dialog">
+        <input name="watch_id" type="hidden" />
         <div class="modal-head"><div><p class="eyebrow">НОВЫЙ РАДАР</p><h2>Фильтр сделки</h2></div><button class="close" type="button" data-close aria-label="Закрыть">×</button></div>
         <label>Ссылка на поиск Avito <span class="optional">необязательно</span><input name="source_url" type="url" inputmode="url" placeholder="https://www.avito.ru/…" /></label>
         <p class="field-note">Можно вставить готовый поиск Avito со всеми фильтрами цены, категории и сортировки.</p>
@@ -70,6 +79,25 @@
           <label>Прибыль от<input name="min_profit" type="number" min="0" inputmode="numeric" value="5000" required /></label>
           <label>ROI от, %<input name="min_roi" type="number" min="0" step="0.1" inputmode="decimal" value="15" required /></label>
         </div>
+        <details class="advanced" open><summary>Состояние и условия покупки</summary>
+          <label class="check"><input name="require_details" type="checkbox" checked /> Отправлять сигнал только после чтения полного описания</label>
+          <label class="check"><input name="exclude_defects" type="checkbox" checked /> Исключать найденные дефекты, блокировки и ремонт</label>
+          <label class="check"><input name="delivery_only" type="checkbox" /> Только с подтверждённой доставкой</label>
+          <label class="check"><input name="private_only" type="checkbox" /> Только подтверждённые частные продавцы</label>
+          <div class="grid-two"><label>Минимальная цена<input name="min_buy_price" type="number" min="0" value="0" /></label><label>АКБ не ниже, %<input name="battery_min" type="number" min="0" max="100" value="0" /></label></div>
+          <label>Стоп-слова через запятую<input name="stop_words" placeholder="обмен, копия, рассрочка" maxlength="500" /></label>
+        </details>
+        <details class="advanced"><summary>Расходы и рыночная оценка</summary>
+          <div class="grid-two">
+            <label>Комиссия продажи, %<input name="sale_fee_percent" type="number" min="0" max="100" value="5" step="0.1" /></label>
+            <label>Резерв на риски, %<input name="reserve_percent" type="number" min="0" max="100" value="5" step="0.1" /></label>
+            <label>Ремонт, ₽<input name="repair_costs" type="number" min="0" value="0" /></label>
+            <label>Доставка, ₽<input name="delivery_costs" type="number" min="0" value="0" /></label>
+            <label>Прочие расходы, ₽<input name="fixed_costs" type="number" min="0" value="500" /></label>
+            <label>Проверенных аналогов от<input name="min_comparables" type="number" min="3" max="50" value="5" /></label>
+          </div>
+          <p class="field-note">Автооценка использует отдельную выборку предложений без вашего ограничения цены. Это оценка по объявлениям, а не сведения о состоявшихся продажах.</p>
+        </details>
         <button class="primary submit" type="submit">Запустить радар</button>
       </form>
     </dialog>
@@ -77,6 +105,7 @@
     <dialog id="listing-modal">
       <form id="listing-form" method="dialog">
         <div class="modal-head"><div><p class="eyebrow">РУЧНАЯ ПРОВЕРКА</p><h2>Объявление</h2></div><button class="close" type="button" data-close aria-label="Закрыть">×</button></div>
+        <label>Проверить по настройкам радара<select name="watch_id" id="manual-watch" required></select></label>
         <label>Название<input name="title" placeholder="Точное название товара" required minlength="2" /></label>
         <div class="grid-two">
           <label>Цена<input name="price" type="number" min="1" inputmode="numeric" required /></label>
@@ -85,10 +114,13 @@
         <label>Ссылка<input name="url" type="url" placeholder="https://…" required /></label>
         <label>Ссылка на фотографию <span class="optional">необязательно</span><input name="image_url" type="url" placeholder="https://…/photo.jpg" /></label>
         <label>Город<input name="location" placeholder="Астрахань" /></label>
+        <label>Полное описание<textarea name="description" rows="5" placeholder="Скопируйте описание продавца" required minlength="15"></textarea></label>
+        <label>Состояние по продавцу<input name="condition" placeholder="Например: б/у, хорошее" /></label>
         <button class="primary submit" type="submit">Проверить сделку</button>
       </form>
     </dialog>
 
     <div id="toast" role="status"></div>
+    <dialog id="deal-modal"><div class="deal-modal-body"><div class="modal-head"><h2>Разбор объявления</h2><button type="button" class="close" data-close aria-label="Закрыть">×</button></div><div id="deal-content"></div></div></dialog>
   </body>
 </html>

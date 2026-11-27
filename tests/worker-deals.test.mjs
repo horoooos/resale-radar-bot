@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../worker/src/index.js', import.meta.url), 'utf8');
-const { validateListing, sendDeal, collector, comparableKey } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector, comparableKey };').toString('base64')}`);
-const listing = { external_id: 'test', title: 'Телефон', price: 10000, url: 'https://example.com/item', image_url: 'https://example.com/photo.jpg' };
+const { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions };').toString('base64')}`);
+const listing = { external_id: 'test', title: 'Телефон', price: 10000, url: 'https://example.com/item', image_url: 'https://example.com/photo.jpg', description:'Полностью исправный телефон, всё проверено продавцом.', detail_status:'complete' };
 const result = { expected: 15000, costs: 1000, profit: 4000, roi: 40, confidence: 'задана пользователем', count: 0 };
 
 test('market comparisons distinguish phone model numbers and memory size', () => {
@@ -12,6 +12,47 @@ test('market comparisons distinguish phone model numbers and memory size', () =>
   assert.notEqual(comparableKey('iPhone 11, 64 ГБ'), comparableKey('iPhone 11, 128 ГБ'));
   assert.notEqual(comparableKey('iPhone 11 Pro, 128 ГБ'), comparableKey('iPhone 11, 128 ГБ'));
   assert.equal(comparableKey('iPhone 11, 128 ГБ, 1 SIM'), comparableKey('iPhone 11, 128 ГБ, SIM + eSIM'));
+});
+
+test('description checks distinguish unknown delivery, negative delivery and seller claims', () => {
+  assert.equal(inspectListing({...listing,description:'Исправный телефон.'}).delivery,null);
+  assert.equal(inspectListing({...listing,description:'Отправлю Авито доставкой.'}).delivery,true);
+  assert.equal(inspectListing({...listing,description:'Авито доставка есть, но только самовывоз.'}).delivery,false);
+  assert.equal(inspectListing({...listing,description:'Аккумулятор 76%, есть трещина на стекле.'}).battery,76);
+  assert.ok(inspectListing({...listing,description:'Не включается, на запчасти.'}).risks.length);
+  assert.equal(inspectListing({...listing,description:'Телефон не заблокирован. Экран без трещин.'}).risks.length,0);
+});
+
+const phone={...listing,title:'iPhone 11, 128 ГБ',price:10000,category:'Телефоны',delivery:true,condition:'Б/у'};
+const market=Array.from({length:6},(_,i)=>({...phone,external_id:`market-${i}`,price:20000+i*500}));
+const radar={min_profit:2000,min_roi:15,max_buy_price:15000,expected_sale_price:null,options:watchOptions({min_comparables:5})};
+
+test('profit uses exact checked market samples and includes each cost', () => {
+  const a=assessListing(phone,radar,market);
+  assert.equal(a.market.count,6);
+  assert.equal(a.eligible,true);
+  assert.equal(a.profit,a.expected-phone.price-Object.values(a.costs).reduce((x,y)=>x+y,0));
+  assert.ok(a.costs.reserve>0);
+});
+
+test('wrong models, damaged analogues and the candidate itself do not create a market', () => {
+  const invalid=[phone,...market.map(m=>({...m,title:'iPhone 13, 128 ГБ'})),...market.map(m=>({...m,external_id:m.external_id+'broken',description:'Не включается, на запчасти.'}))];
+  const a=assessListing(phone,radar,invalid);
+  assert.equal(a.expected,null);
+  assert.equal(a.eligible,false);
+});
+
+test('unknown descriptions and unconfirmed delivery suppress notifications even when price is low', () => {
+  assert.equal(assessListing({...phone,detail_status:'pending'},radar,market).eligible,false);
+  assert.equal(assessListing({...phone,delivery:null},{...radar,options:watchOptions({delivery_only:true})},market).eligible,false);
+  assert.equal(assessListing({...phone,description:'Разбит экран, требует ремонта.'},radar,market).eligible,false);
+});
+
+test('stop words, battery and repair allowance affect decisions', () => {
+  assert.equal(assessListing({...phone,description:'Телефон продаётся только в рассрочку.'},{...radar,options:watchOptions({stop_words:'рассрочку'})},market).eligible,false);
+  assert.equal(assessListing(phone,{...radar,options:watchOptions({battery_min:85})},market).eligible,false);
+  const normal=assessListing(phone,radar,market), repair=assessListing(phone,{...radar,options:watchOptions({repair_costs:3000})},market);
+  assert.equal(normal.profit-repair.profit,3000);
 });
 
 test('validates optional listing photo and rejects executable URLs', () => {
