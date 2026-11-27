@@ -69,6 +69,7 @@ async def main():
                     except Exception:
                         raise RuntimeError((await page.title())[:150]) from None
                     rows = await page.locator('[data-marker="catalog-serp"] [data-marker="item"]').evaluate_all(EXTRACT)
+                    rows = rows[:20]
                     items = []
                     cards = page.locator('[data-marker="catalog-serp"] [data-marker="item"]')
                     for card_index, row in enumerate(rows):
@@ -79,12 +80,12 @@ async def main():
                             row['image_url'] = ''
                         card = cards.nth(card_index)
                         try:
-                            await card.scroll_into_view_if_needed(timeout=3000)
+                            await card.scroll_into_view_if_needed(timeout=1200)
                             await page.wait_for_timeout(200)
                             image = card.locator('img, [data-marker="item-photo"], [data-marker="item-gallery"]').first
                             if await image.count():
                                 await page.wait_for_timeout(150)
-                                picture = await image.screenshot(type='jpeg', quality=65, timeout=3000)
+                                picture = await image.screenshot(type='jpeg', quality=65, animations='disabled', timeout=1200)
                                 if len(picture) < 100000:
                                     row['image_data'] = base64.b64encode(picture).decode('ascii')
                         except Exception:
