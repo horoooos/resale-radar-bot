@@ -39,6 +39,7 @@ jobs:
         run: xvfb-run -a python scripts/collect_avito.py
       - name: Publish daily operational snapshot
         if: always()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           COLLECT_RESULT: ${{ job.status }}
