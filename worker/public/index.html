@@ -11,6 +11,7 @@
       .field-note { margin: -9px 0 16px; color: #778188; font-size: 0.76rem; line-height: 1.4; }
       .source-link { margin-top: 14px; padding: 10px 12px; border: 1px solid #4b6729; border-radius: 10px; background: #192214; color: var(--lime); font: inherit; font-size: 0.8rem; font-weight: 750; }
     </style>
+    <link rel="stylesheet" href="/deals.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/app.js" defer></script>
   </head>
@@ -40,6 +41,12 @@
       </section>
       <section id="watch-list" class="watch-list" aria-live="polite">
         <div class="skeleton"></div><div class="skeleton"></div>
+      </section>
+
+      <section class="deals-section">
+        <div class="section-head"><div><p class="eyebrow">НАЙДЕНО РАДАРОМ</p><h2>Выгодные предложения</h2></div></div>
+        <p id="source-status" class="field-note">Проверяем источник объявлений…</p>
+        <div id="deal-list" class="deal-list" aria-live="polite"></div>
       </section>
 
       <button class="listing-cta" data-open="listing-modal">
@@ -76,6 +83,7 @@
           <label>Категория<input name="category" value="Другое" required /></label>
         </div>
         <label>Ссылка<input name="url" type="url" placeholder="https://…" required /></label>
+        <label>Ссылка на фотографию <span class="optional">необязательно</span><input name="image_url" type="url" placeholder="https://…/photo.jpg" /></label>
         <label>Город<input name="location" placeholder="Астрахань" /></label>
         <button class="primary submit" type="submit">Проверить сделку</button>
       </form>

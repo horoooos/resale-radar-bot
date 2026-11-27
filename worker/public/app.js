@@ -46,10 +46,37 @@ function renderWatches(watches) {
     </article>`).join("");
 }
 
+function renderDeals(deals) {
+  const list = $("#deal-list");
+  if (!deals.length) {
+    list.innerHTML = '<div class="empty">Пока выгодных предложений нет.<br>Подходящие сделки появятся здесь и придут в чат.</div>';
+    return;
+  }
+  list.innerHTML = deals.map((deal) => `
+    <article class="deal-card">
+      ${deal.image_url ? `<img class="deal-photo" src="${escapeHtml(deal.image_url)}" alt="Фото товара" loading="lazy" referrerpolicy="no-referrer" />` : '<div class="deal-photo deal-photo-fallback">Фото не предоставлено</div>'}
+      <div class="deal-body">
+        <h3>${escapeHtml(deal.title)}</h3>
+        <div class="deal-price">${rubles.format(deal.price)} ₽</div>
+        <div class="deal-profit"><span>≈ +${rubles.format(deal.profit)} ₽</span><span>ROI ${Number(deal.roi).toFixed(1)}%</span></div>
+        <div class="deal-details">Продажа ≈ ${rubles.format(deal.expected)} ₽<br>${escapeHtml(deal.location || "Город не указан")} · оценка: ${escapeHtml(deal.confidence)}</div>
+        <button class="deal-open" type="button" data-source-url="${escapeHtml(deal.url)}">Открыть объявление ↗</button>
+      </div>
+    </article>`).join("");
+  list.querySelectorAll("img").forEach((img) => {
+    img.addEventListener("error", () => {
+      const fallback = document.createElement("div");
+      fallback.className = "deal-photo deal-photo-fallback";
+      fallback.textContent = "Фото недоступно";
+      img.replaceWith(fallback);
+    }, { once: true });
+  });
+}
+
 function escapeHtml(value) {
   const node = document.createElement("span");
   node.textContent = String(value);
-  return node.innerHTML;
+  return node.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 async function load() {
@@ -65,6 +92,10 @@ async function load() {
     $("#listing-count").textContent = data.stats.listings;
     $("#alert-count").textContent = data.stats.alerts;
     renderWatches(data.watches);
+    renderDeals(data.deals || []);
+    $("#source-status").textContent = data.source_connected
+      ? "Источник подключён · проверка каждые 5 минут · уведомления в чат включены"
+      : "Автопоиск ещё не подключён. Сейчас можно проверить объявление вручную. Ссылка Avito сохраняется как закладка поиска.";
   } catch (error) {
     $("#watch-list").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
     toast(error.message, true);

@@ -137,11 +137,20 @@ async function api(request, env, url) {
   const chatId = user.id;
   try {
     if (request.method === "GET" && url.pathname === "/api/dashboard") {
-      const [{ results: watches }, listingCount, notificationCount] = await Promise.all([
+      const [{ results: watches }, { results: deals }, listingCount, notificationCount] = await Promise.all([
         env.DB.prepare(
           `SELECT w.*, s.source_url
            FROM watches w LEFT JOIN watch_sources s ON s.watch_id = w.id
            WHERE w.chat_id = ? AND w.enabled = 1 ORDER BY w.id DESC`,
+        ).bind(chatId).all(),
+        env.DB.prepare(
+          `SELECT l.external_id, l.title, l.price, l.url, l.category, l.location, l.published_at,
+                  l.raw_json, d.expected, d.costs, d.profit, d.roi, d.confidence, d.created_at
+           FROM deal_results d
+           JOIN watches w ON w.id = d.watch_id
+           JOIN listings l ON l.external_id = d.external_id
+           WHERE w.chat_id = ?
+           ORDER BY d.created_at DESC LIMIT 30`,
         ).bind(chatId).all(),
         env.DB.prepare("SELECT COUNT(*) AS count FROM listings").first(),
         env.DB.prepare(
@@ -152,6 +161,12 @@ async function api(request, env, url) {
         ok: true,
         user: { id: user.id, first_name: user.first_name || "" },
         watches,
+        source_connected: Boolean(env.LISTINGS_FEED_URL),
+        deals: deals.map((deal) => ({
+          ...deal,
+          image_url: JSON.parse(deal.raw_json || "{}").image_url || "",
+          raw_json: undefined,
+        })),
         stats: { listings: Number(listingCount?.count || 0), alerts: Number(notificationCount?.count || 0) },
       });
     }
@@ -193,6 +208,12 @@ async function api(request, env, url) {
       await env.DB.prepare(
         "DELETE FROM watch_sources WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)",
       ).bind(watchId, chatId).run();
+      await env.DB.prepare(
+        "DELETE FROM deal_results WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)",
+      ).bind(watchId, chatId).run();
+      await env.DB.prepare(
+        "DELETE FROM notifications WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)",
+      ).bind(watchId, chatId).run();
       const result = await env.DB.prepare("DELETE FROM watches WHERE id = ? AND chat_id = ?")
         .bind(watchId, chatId)
         .run();
@@ -222,12 +243,17 @@ function validateListing(item) {
     url: String(item.url || "").trim(),
     category: String(item.category || "Другое").trim(),
     location: String(item.location || "").trim(),
+    image_url: String(item.image_url || "").trim(),
     published_at: String(item.published_at || new Date().toISOString()),
   };
   if (!listing.external_id || listing.title.length < 2) throw new Error("нет external_id или title");
   if (!Number.isInteger(listing.price) || listing.price <= 0) throw new Error("price должен быть целым числом > 0");
   const parsedUrl = new URL(listing.url);
   if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error("url должен быть HTTP(S)-ссылкой");
+  if (listing.image_url) {
+    const imageUrl = new URL(listing.image_url);
+    if (!['http:', 'https:'].includes(imageUrl.protocol)) throw new Error("image_url должен быть HTTP(S)-ссылкой");
+  }
   return listing;
 }
 
@@ -314,6 +340,25 @@ ROI: <b>${result.roi.toFixed(1)}%</b>
 ⚠️ Проверьте состояние, комплектность, документы и продавца лично. Расчёт — оценка, а не гарантия прибыли.`;
 }
 
+async function sendDeal(env, chatId, listing, result) {
+  const text = formatDeal(listing, result);
+  const replyMarkup = { inline_keyboard: [[{ text: "Открыть объявление", url: listing.url }]] };
+  if (listing.image_url) {
+    try {
+      return await telegram(env, "sendPhoto", {
+        chat_id: chatId,
+        photo: listing.image_url,
+        caption: text,
+        parse_mode: "HTML",
+        reply_markup: replyMarkup,
+      });
+    } catch {
+      // Если источник не разрешает Telegram загрузить фото, отправляем обычное сообщение.
+    }
+  }
+  return answer(env, chatId, text, { reply_markup: replyMarkup });
+}
+
 async function comparablePrices(env, listing) {
   const tokens = words(listing.title).filter((word) => word.length > 2).slice(0, 4);
   const clauses = tokens.map(() => "lower(title) LIKE ?").join(" AND ") || "1=1";
@@ -343,7 +388,20 @@ async function processListings(env, input) {
       if (!watch.expected_sale_price && prices.length < Number(env.MIN_COMPARABLES || 3)) continue;
       const result = score(listing, watch, prices);
       if (!result) continue;
-      await answer(env, watch.chat_id, formatDeal(listing, result));
+      await sendDeal(env, watch.chat_id, listing, result);
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO deal_results
+         (watch_id, external_id, expected, costs, profit, roi, confidence, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      ).bind(
+        watch.id,
+        listing.external_id,
+        result.expected,
+        result.costs,
+        result.profit,
+        result.roi,
+        result.confidence,
+      ).run();
       await env.DB.prepare("INSERT OR IGNORE INTO notifications (watch_id, external_id) VALUES (?, ?)")
         .bind(watch.id, listing.external_id)
         .run();

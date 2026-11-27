@@ -189,6 +189,7 @@ https://resale-radar-bot.ВАШ-SUBDOMAIN.workers.dev/health
       "title": "Apple iPhone 13 128GB",
       "price": 32000,
       "url": "https://example.com/listing/123",
+      "image_url": "https://example.com/photos/123.jpg",
       "category": "Телефоны",
       "location": "Астрахань",
       "published_at": "2026-11-14T00:00:00+04:00"
@@ -199,6 +200,13 @@ https://resale-radar-bot.ВАШ-SUBDOMAIN.workers.dev/health
 
 Те же данные можно отправить вручную командой `/add {JSON}`. Пример лежит в
 `example_feed.json`.
+
+`image_url` необязателен: это прямая HTTP(S)-ссылка на фотографию товара.
+Выгодные сделки сохраняются в Mini App с фотографией, прибылью и кнопкой объявления.
+В Telegram приходит фото с расчётом; если Telegram не может загрузить фото,
+бот отправляет текст. Источник проверяется каждые 5 минут при заполненном
+`LISTINGS_FEED_URL`. Сохранённые ссылки поиска Avito являются закладками,
+они сами по себе не подключают загрузку объявлений.
 
 ## Почему здесь нет встроенного парсера Avito
 

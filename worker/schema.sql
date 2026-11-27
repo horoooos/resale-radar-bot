@@ -39,3 +39,15 @@ CREATE TABLE IF NOT EXISTS notifications (
   PRIMARY KEY (watch_id, external_id)
 );
 
+CREATE TABLE IF NOT EXISTS deal_results (
+  watch_id INTEGER NOT NULL,
+  external_id TEXT NOT NULL,
+  expected INTEGER NOT NULL,
+  costs INTEGER NOT NULL,
+  profit INTEGER NOT NULL,
+  roi REAL NOT NULL,
+  confidence TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (watch_id, external_id)
+);
+
