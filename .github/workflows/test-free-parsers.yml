@@ -1,0 +1,43 @@
+name: Test open-source Avito parsers
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/test_open_source_parsers.py
+      - .github/workflows/test-free-parsers.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: sc0urged/avito_parser
+          ref: c2c8589ef02682f27eb5bdebb7c956ba32598c3d
+          path: .upstream-browser
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: ergon73/avito-parser
+          ref: 7eb75a89f601436c26bd65af024253bbbe260c47
+          path: .upstream-curl
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.57.0 beautifulsoup4 curl_cffi
+      - run: python -m playwright install --with-deps chromium
+      - name: Browser parser live test
+        id: browser
+        continue-on-error: true
+        run: timeout 100 python scripts/test_open_source_parsers.py browser
+      - name: Curl parser live test
+        id: curl
+        continue-on-error: true
+        run: timeout 120 python scripts/test_open_source_parsers.py curl
+      - name: Verify at least one parser returned listings
+        if: steps.browser.outcome != 'success' && steps.curl.outcome != 'success'
+        run: exit 1
