@@ -164,7 +164,7 @@ async function api(request, env, url) {
         user: { id: user.id, first_name: user.first_name || "" },
         watches,
         source_connected: Boolean(env.LISTINGS_FEED_URL) || watches.some(w => w.scanned_at && !w.scan_error),
-        scan_interval: "каждый час",
+        scan_interval: "каждые 5 минут",
         deals: deals.map((deal) => ({
           ...deal,
           image_url: JSON.parse(deal.raw_json || "{}").image_data ? `${env.APP_URL}/photo?id=${encodeURIComponent(deal.external_id)}` : photoUrl(JSON.parse(deal.raw_json || "{}").image_url || "", env),

@@ -95,8 +95,8 @@ async function load() {
     renderWatches(data.watches);
     renderDeals(data.deals || []);
     $("#source-status").textContent = data.source_connected
-      ? "Источник подключён · проверка каждый час · уведомления в чат включены"
-      : "Сохраните ссылку поиска Avito. Облачная проверка выполняется каждый час; результат появится на карточке фильтра.";
+      ? "Источник подключён · расписание каждые 5 минут · уведомления в чат включены"
+      : "Сохраните ссылку поиска Avito. Облачная проверка запускается по расписанию каждые 5 минут; результат появится на карточке фильтра.";
   } catch (error) {
     $("#watch-list").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
     toast(error.message, true);
