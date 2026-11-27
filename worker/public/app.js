@@ -9,6 +9,42 @@ const rubles = new Intl.NumberFormat("ru-RU");
 const $ = (selector) => document.querySelector(selector);
 let dashboard = { watches: [], deals: [] };
 let loadVersion = 0;
+let currentPage='finds';
+let tradeData={trades:[],stats:{profit:0,sold_count:0},daily:[]};
+
+function setPage(name){
+  currentPage=name;
+  document.querySelectorAll('[data-page]').forEach(el=>el.hidden=el.dataset.page!==name);
+  document.querySelectorAll('.bottom-nav [data-tab]').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));
+  $('#screen-title').textContent=({finds:'Находки',searches:'Мои поиски',trades:'Мои сделки',service:'Мой тариф'})[name];
+  $('#screen-subtitle').textContent=({finds:`${dashboard.deals.length} находок в последней ленте`,searches:'Ваши условия покупки и расчёта',trades:'Покупки, расходы и результат',service:'Все функции без подписки'})[name];
+  $('[data-show-filters]').hidden=name!=='finds';
+  if(name==='trades')loadTrades();
+}
+
+async function loadTrades(){
+  try{
+    const data=await api('/api/trades');
+    tradeData={trades:data.trades||[],stats:data.stats||{profit:0,sold_count:0},daily:data.daily||[]};
+    const profit=Number(tradeData.stats.profit||0);
+    $('#trade-profit').textContent=`${profit>0?'+':''}${rubles.format(profit)} ₽`;
+    $('#trade-profit').style.color=profit<0?'#ef9b75':'var(--lime)';
+    $('#trade-count').textContent=`${tradeData.stats.sold_count||0} продаж`;
+    const bars=tradeData.daily.slice(-12), maximum=Math.max(1,...bars.map(b=>Math.abs(b.profit)));
+    $('#trade-chart').innerHTML=bars.length?bars.map(b=>`<div class="chart-column ${b.profit>=0?'positive':'negative'}" title="${escapeHtml(b.day)}: ${b.profit} ₽" style="height:${Math.max(4,Math.abs(b.profit)/maximum*80)}px"><span>${rubles.format(b.profit)}</span></div>`).join(''):'<p class="screen-subtitle">Здесь появится график ваших продаж</p>';
+    $('#trade-list').innerHTML=tradeData.trades.length?tradeData.trades.map(t=>`<article class="trade-row" data-edit-trade="${t.id}" tabindex="0"><div><h3>${escapeHtml(t.title)}</h3><p>${rubles.format(t.purchase_price)} → ${t.sale_price==null?'в наличии':rubles.format(t.sale_price)+' ₽'}</p></div><strong class="${t.net_profit!=null&&t.net_profit>=0?'status-good':'status-neutral'}">${t.net_profit==null?'В наличии':(t.net_profit>0?'+':'')+rubles.format(t.net_profit)+' ₽'}</strong></article>`).join(''):'<div class="empty">Сделок пока нет.<br>Нажмите «Я купил» в карточке или добавьте сделку вручную.</div>';
+  }catch(error){$('#trade-list').innerHTML=`<div class="empty">${escapeHtml(error.message)}</div>`;}
+}
+
+function openTrade(deal=null,trade=null){
+  const form=$('#trade-form');form.reset();
+  const today=new Date();
+  const date=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const fields=trade?{...trade,...trade.costs,trade_id:trade.id}:{trade_id:'',external_id:deal?.external_id||'',title:deal?.title||'',purchase_price:deal?.price||'',purchased_at:date};
+  form.elements.trade_id.value='';form.elements.external_id.value='';
+  for(const [key,value] of Object.entries(fields)){const input=form.elements.namedItem(key);if(input)input.value=value??'';}
+  $('#trade-modal').showModal();
+}
 
 function toast(message, error = false) {
   const element = $("#toast");
@@ -69,7 +105,8 @@ function renderDeals(deals) {
       ${deal.image_url ? `<img class="deal-photo" src="${escapeHtml(deal.image_url)}" alt="Фото товара" loading="lazy" referrerpolicy="no-referrer" />` : '<div class="deal-photo deal-photo-fallback">Фото не предоставлено</div>'}
       <div class="deal-body">
         <h3>${escapeHtml(deal.title)}</h3>
-        <div class="deal-price">${rubles.format(deal.price)} ₽</div>
+        <div class="deal-price">${rubles.format(deal.price)} ₽${deal.analysis?.market.mean?`<span class="old-price">${rubles.format(deal.analysis.market.mean)} ₽</span>`:''}</div>
+        ${deal.analysis?.market.mean?`<span class="price-discount ${deal.analysis?.eligible?'':'risky'}">${deal.price<deal.analysis.market.mean?'-':'+'}${Math.abs(Math.round((deal.price/deal.analysis.market.mean-1)*100))}%</span>`:''}
         <div class="fact-chips"><span>${deal.analysis?.details_checked ? 'Описание прочитано' : 'Ожидает проверки'}</span><span>${deal.analysis?.delivery === true ? 'Есть доставка' : deal.analysis?.delivery === false ? 'Без доставки' : 'Доставка: нет данных'}</span></div>
         <div class="fact-chips"><span>${escapeHtml(deal.avito_price_label || 'Avito: нет оценки')}</span></div>
         <div class="${deal.analysis?.eligible?'status-good':'status-neutral'}" style="font-size:.75rem;margin:8px 0">${deal.analysis?.eligible?'Прошло фильтры радара':'Сигнал не подтверждён'}</div>
@@ -95,8 +132,12 @@ async function openAnalysis(id) {
   const a=deal.analysis;
   const line=(name,value)=>`<div class="analysis-line"><span>${escapeHtml(name)}</span><b>${escapeHtml(value)}</b></div>`;
   const money=value=>value==null?'Недостаточно данных':`${rubles.format(value)} ₽`;
+  const marker=a?.market?.mean?Math.max(2,Math.min(96,100*(deal.price-(a.market.low||0))/Math.max(1,(a.market.high||a.market.mean)-(a.market.low||0)))):50;
   $('#deal-content').innerHTML=`${deal.image_url?`<img class="detail-photo" src="${escapeHtml(deal.image_url)}" alt="${escapeHtml(deal.title)}" />`:''}<h3>${escapeHtml(deal.title)}</h3>${line('Покупка',money(deal.price))}
     <button class="deal-open" type="button" data-source-url="${escapeHtml(deal.url)}">Открыть оригинал на мобильном Avito ↗</button>
+    ${a?.market.mean?`<div class="market-scale"><div class="scale-track"><i class="scale-dot" style="--marker:${marker}%"></i></div><div class="scale-labels"><span>Покупка: ${money(deal.price)}</span><span>Аналоги: ${money(a.market.low)}–${money(a.market.high)}</span></div></div>`:''}
+    <div class="detail-summary"><div class="summary-cell"><span>Быстрая продажа, оценка</span><strong>${money(a?.expected)}</strong></div><div class="summary-cell highlight"><span>Потенциальная прибыль</span><strong>${money(a?.profit)}</strong></div></div>
+    <div class="deal-actions"><button class="small-button ${deal.favorite?'active':''}" type="button" data-favorite="${escapeHtml(id)}">${deal.favorite?'★ В избранном':'☆ В избранное'}</button><button class="primary" type="button" data-buy="${escapeHtml(id)}">Я купил</button></div>
     ${line('Оценка самой площадки',deal.avito_price_label||'Avito не предоставил оценку')}
     ${Object.entries(deal.specs||{}).map(([k,v])=>line(({screen:'Экран',body:'Корпус',kit:'Комплект',manufacturer:'Производитель',model:'Модель',storage:'Память',ram:'Оперативная память',color:'Цвет',sim:'SIM-карты'})[k]||k,v)).join('')}
     ${line('Состояние по продавцу',a?.condition||deal.condition||'Не указано')}
@@ -128,12 +169,15 @@ async function load() {
   if (!initData) {
     $("#watch-list").innerHTML = '<div class="empty">Откройте приложение кнопкой внутри Telegram, чтобы увидеть свои фильтры.</div>';
     $("#welcome").textContent = "Интерфейс готов. Для защищённого входа откройте его из чата с ботом.";
+    $('#deal-list').innerHTML='<div class="empty">Откройте Mini App кнопкой внутри Telegram-бота для защищённого входа.</div>';
+    $('#source-status').textContent='Требуется вход через Telegram';
     return;
   }
   try {
     const data = await api("/api/dashboard");
     if(version!==loadVersion)return;
     dashboard=data;
+    if(currentPage!=='trades')setPage(currentPage);
     if (data.user.first_name) $("#welcome").textContent = `${data.user.first_name}, настройте критерии — радар рассчитает маржу и пришлёт сигнал в Telegram.`;
     $("#watch-count").textContent = data.watches.filter(w=>w.enabled).length;
     $("#listing-count").textContent = data.stats.listings;
@@ -150,6 +194,17 @@ async function load() {
 }
 
 document.addEventListener("click", async (event) => {
+  const tab=event.target.closest('[data-tab]');
+  if(tab){setPage(tab.dataset.tab);return;}
+  const filters=event.target.closest('[data-show-filters]');
+  if(filters){$('#feed-tools').hidden=!$('#feed-tools').hidden;return;}
+  const quick=event.target.closest('[data-quick]');
+  if(quick){$('#feed-mode').value=quick.dataset.quick;document.querySelectorAll('[data-quick]').forEach(el=>el.classList.toggle('active',el===quick));renderDeals(dashboard.deals);return;}
+  const buy=event.target.closest('[data-buy]');
+  if(buy){openTrade(dashboard.deals.find(d=>d.external_id===buy.dataset.buy));return;}
+  if(event.target.closest('[data-new-trade]')){openTrade();return;}
+  const editTrade=event.target.closest('[data-edit-trade]');
+  if(editTrade){openTrade(null,tradeData.trades.find(t=>t.id===Number(editTrade.dataset.editTrade)));return;}
   const detail=event.target.closest('[data-detail]');
   if(detail) return openAnalysis(detail.dataset.detail);
   const edit=event.target.closest('[data-edit]');
@@ -242,5 +297,9 @@ $("#listing-form").addEventListener("submit", async (event) => {
 });
 
 load();
+$('#trade-form').addEventListener('submit',async event=>{
+  event.preventDefault();const form=event.currentTarget,body=Object.fromEntries(new FormData(form));
+  try{await api(body.trade_id?`/api/trades/${body.trade_id}`:'/api/trades',{method:body.trade_id?'PATCH':'POST',body:JSON.stringify(body)});$('#trade-modal').close();if($('#deal-modal').open)$('#deal-modal').close();setPage('trades');toast('Сделка сохранена');}catch(error){toast(error.message,true);}
+});
 ['feed-search','feed-mode','feed-sort','feed-min','feed-max'].forEach(id=>$('#'+id).addEventListener('input',()=>renderDeals(dashboard.deals)));
 setInterval(() => { if (!document.hidden) load(); }, 60000);

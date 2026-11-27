@@ -12,41 +12,42 @@
       .source-link { margin-top: 14px; padding: 10px 12px; border: 1px solid #4b6729; border-radius: 10px; background: #192214; color: var(--lime); font: inherit; font-size: 0.8rem; font-weight: 750; }
     </style>
     <link rel="stylesheet" href="/deals.css" />
+    <link rel="stylesheet" href="/hunter.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div class="brand"><span class="brand-mark">R</span><span>RESALE RADAR</span></div>
-        <div class="live"><i></i>24/7</div>
+        <div><h1 id="screen-title">Находки</h1><p class="screen-subtitle" id="screen-subtitle">Ваш радар перепродажи</p></div>
+        <button class="tool-button" type="button" data-show-filters aria-label="Фильтры находок">☷</button>
       </header>
 
-      <section class="hero">
+      <section class="hero" data-page="searches" hidden>
         <p class="eyebrow">ПАНЕЛЬ ПЕРЕПРОДАЖИ</p>
         <h1>Радар перепродажи<br /><em>Цена. Состояние. Прибыль.</em></h1>
         <p id="welcome" class="hero-copy">Настройте критерии — радар рассчитает маржу и пришлёт сигнал в Telegram.</p>
         <button class="primary" data-open="watch-modal">Создать фильтр</button>
       </section>
 
-      <section class="stats" aria-label="Статистика">
+      <section class="stats" aria-label="Статистика" data-page="searches" hidden>
         <article><span id="watch-count">—</span><small>активных<br />фильтров</small></article>
         <article><span id="listing-count">—</span><small>объявлений<br />в базе</small></article>
         <article><span id="alert-count">—</span><small>выгодных<br />сигналов</small></article>
       </section>
 
-      <section class="section-head">
+      <section class="section-head" data-page="searches" hidden>
         <div><p class="eyebrow">МОИ НАСТРОЙКИ</p><h2>Активные фильтры</h2></div>
         <button class="icon-button" data-open="watch-modal" aria-label="Добавить фильтр">+</button>
       </section>
-      <section id="watch-list" class="watch-list" aria-live="polite">
+      <section id="watch-list" class="watch-list" aria-live="polite" data-page="searches" hidden>
         <div class="skeleton"></div><div class="skeleton"></div>
       </section>
 
-      <section class="deals-section">
-        <div class="section-head"><div><p class="eyebrow">НАЙДЕНО РАДАРОМ</p><h2>Объявления и выгодные сделки</h2></div></div>
+      <section class="deals-section" data-page="finds">
+        <div class="quick-chips" aria-label="Быстрый отбор"><button type="button" class="quick-chip active" data-quick="all">Все</button><button type="button" class="quick-chip" data-quick="eligible">Выгодные</button><button type="button" class="quick-chip" data-quick="delivery">С доставкой</button><button type="button" class="quick-chip" data-quick="favorite">Избранное</button></div>
         <p id="source-status" class="field-note">Проверяем источник объявлений…</p>
-        <div class="feed-tools">
+        <div class="feed-tools" id="feed-tools" hidden>
           <input id="feed-search" placeholder="Поиск по модели или описанию" aria-label="Поиск в объявлениях" />
           <div class="grid-two">
             <select id="feed-mode" aria-label="Отбор объявлений"><option value="all">Все найденные</option><option value="eligible">Прошли фильтр прибыли</option><option value="favorite">Избранное</option><option value="delivery">Есть доставка</option><option value="clean">Без найденных рисков</option><option value="pending">Ожидают проверки</option><option value="hidden">Скрытые</option></select>
@@ -57,13 +58,23 @@
         <div id="deal-list" class="deal-list" aria-live="polite"></div>
       </section>
 
-      <button class="listing-cta" data-open="listing-modal">
+      <button class="listing-cta" data-open="listing-modal" data-page="searches" hidden>
         <span class="listing-icon">↗</span>
         <span><b>Проверить объявление</b><small>Добавьте найденный товар и оцените его</small></span>
       </button>
 
-      <footer>Расчёт является оценкой, а не гарантией прибыли. Проверяйте товар и продавца лично.</footer>
+      <section data-page="trades" hidden>
+        <div class="portfolio-panel"><div class="portfolio-top"><span>Фактическая прибыль за месяц</span><span id="trade-count" class="chip">0 сделок</span></div><strong id="trade-profit">0 ₽</strong><div class="profit-chart" id="trade-chart"></div><p class="screen-subtitle">По записанным продажам, после расходов</p></div>
+        <div class="section-head"><h2>История сделок</h2><button class="small-button active" type="button" data-new-trade>+ Сделка</button></div>
+        <div id="trade-list" class="trade-list"></div>
+      </section>
+      <section data-page="service" hidden>
+        <div class="plan-card"><span class="plan-label">ВСЕ ФУНКЦИИ</span><h2>Бесплатный <strong>0 ₽</strong></h2><p>Без подписки и платных API</p><ul><li>Радары с вашими условиями</li><li>Описание, состояние и доставка</li><li>Оценка Avito и собственные аналоги</li><li>Расчёт прибыли и учёт сделок</li><li>Уведомления в Telegram</li></ul></div>
+        <div class="service-panel"><h3>Облачный сбор</h3><p>Расписание каждые 5 минут. GitHub может задерживать запуск, Avito — ограничивать доступ.</p><p>За проход: до 20 находок, до 5 новых описаний и до 2 моделей для изучения рынка. Несколько радаров проверяются по очереди.</p><button class="deal-open" type="button" data-tab="searches">Настроить мои поиски</button></div>
+        <footer>Расчёт является оценкой по объявлениям, а не гарантией прибыли. Данные продавца нужно проверять при покупке.</footer>
+      </section>
     </main>
+    <nav class="bottom-nav" aria-label="Разделы приложения"><button type="button" class="active" data-tab="finds"><span>⌖</span>Находки</button><button type="button" data-tab="searches"><span>⌕</span>Поиски</button><button type="button" data-tab="trades"><span>↗</span>Сделки</button><button type="button" data-tab="service"><span>☆</span>Сервис</button></nav>
 
     <dialog id="watch-modal">
       <form id="watch-form" method="dialog">
@@ -123,5 +134,14 @@
 
     <div id="toast" role="status"></div>
     <dialog id="deal-modal"><div class="deal-modal-body"><div class="modal-head"><h2>Разбор объявления</h2><button type="button" class="close" data-close aria-label="Закрыть">×</button></div><div id="deal-content"></div></div></dialog>
+    <dialog id="trade-modal"><form id="trade-form" method="dialog"><div class="modal-head"><h2>Моя сделка</h2><button type="button" class="close" data-close aria-label="Закрыть">×</button></div>
+      <input name="trade_id" type="hidden" /><input name="external_id" type="hidden" />
+      <label>Товар<input name="title" required maxlength="200" /></label>
+      <div class="grid-two"><label>Купил за, ₽<input name="purchase_price" type="number" min="1" required /></label><label>Дата покупки<input name="purchased_at" type="date" required /></label></div>
+      <div class="grid-two"><label>Продал за, ₽<input name="sale_price" type="number" min="1" placeholder="Пока не продан" /></label><label>Дата продажи<input name="sold_at" type="date" /></label></div>
+      <p class="field-note">Пока цена продажи не указана, сделка учитывается как товар в наличии.</p>
+      <div class="grid-two"><label>Ремонт, ₽<input name="repair" type="number" min="0" value="0" /></label><label>Доставка, ₽<input name="delivery" type="number" min="0" value="0" /></label><label>Комиссия, ₽<input name="commission" type="number" min="0" value="0" /></label><label>Прочее, ₽<input name="other" type="number" min="0" value="0" /></label></div>
+      <button type="submit" class="primary submit">Сохранить сделку</button>
+    </form></dialog>
   </body>
 </html>

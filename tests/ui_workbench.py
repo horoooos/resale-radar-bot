@@ -37,6 +37,7 @@ with sync_playwright() as pw:
     page.route('https://telegram.org/**',lambda route:route.abort())
     page.add_init_script("window.Telegram={WebApp:{initData:'test-fixture',ready(){},expand(){},setHeaderColor(){},setBackgroundColor(){}}}")
     page.goto('http://127.0.0.1:8765/')
+    page.locator('.bottom-nav [data-tab=searches]').click()
     page.get_by_role('button',name='Настроить',exact=True).click()
     assert page.locator('[name=watch_id]').first.input_value()=='7'
     page.locator('[name=delivery_only]').check()
@@ -47,6 +48,8 @@ with sync_playwright() as pw:
     assert page.locator('#watch-form [name=watch_id]').input_value()==''
     page.locator('#watch-modal [data-close]').click()
     assert not page.locator('#watch-modal').is_visible()
+    page.locator('.bottom-nav [data-tab=finds]').click()
+    page.get_by_role('button',name='Фильтры находок').click()
     page.locator('[data-favorite=a]').click()
     expect(page.locator('[data-favorite=a]')).to_have_class(re.compile('active'))
     page.locator('#feed-mode').select_option('favorite')
@@ -66,10 +69,12 @@ with sync_playwright() as pw:
     assert page.evaluate('window.pwned') is None
     page.locator('#deal-modal [data-close]').click()
     page.locator('#feed-min').fill('')
+    page.get_by_role('button',name='Фильтры находок').click()
     page.set_viewport_size({'width':390,'height':844})
     assert page.evaluate('document.documentElement.scrollWidth')<=390
     Path('ui-artifacts').mkdir(exist_ok=True)
     page.screenshot(path='ui-artifacts/workbench-mobile.png',full_page=True)
+    page.locator('.bottom-nav [data-tab=searches]').click()
     page.get_by_role('button',name='Создать фильтр',exact=True).click()
     page.locator('#watch-modal').evaluate('el=>el.scrollTop=el.scrollHeight/2')
     page.screenshot(path='ui-artifacts/radar-settings-mobile.png')

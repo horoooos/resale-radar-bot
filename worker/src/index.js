@@ -174,7 +174,11 @@ function assessListing(listing, watch, samples) {
   const conditionGroup = item => {
     const state=String(item.condition||'').toLowerCase();
     const text=String(item.description||'').toLowerCase();
-    if (/б\s*\/\s*у|подержан|хорошее|отличное|удовлетворительное|как\s+нов/iu.test(state)) return 'used';
+    if (/удовлетворительное/iu.test(state)) return 'used_fair';
+    if (/хорошее/iu.test(state)) return 'used_good';
+    if (/отличное/iu.test(state)) return 'used_excellent';
+    if (/как\s+нов/iu.test(state)) return 'used_like_new';
+    if (/б\s*\/\s*у|подержан/iu.test(state)) return 'used';
     if (/новый|новое/iu.test(state) && !/как\s+нов/iu.test(state)) return 'new';
     if (/не\s+(?:использовал|пользовал|вскрывал)|запечатан/iu.test(text)) return 'new';
     if (/б\s*\/\s*у|как\s+нов|пользовал|в\s+использовании/iu.test(text)) return 'used';
@@ -228,6 +232,30 @@ function avitoSearchUrl(value) {
   return parsed.toString();
 }
 
+function tradeFields(body) {
+  const title=String(body.title||'').trim().slice(0,200);
+  if(title.length<2)throw new Error('Укажите название товара');
+  const amount=(value,name,nullable=false)=>{
+    const number=numberField(value,name,{nullable,minimum:nullable?1:0});
+    if(number!==null&&number>100000000)throw new Error('Слишком большая сумма');
+    return number===null?null:Math.round(number);
+  };
+  const purchase=amount(body.purchase_price,'Цена покупки');
+  if(purchase<1)throw new Error('Цена покупки должна быть больше нуля');
+  const sale=amount(body.sale_price,'Цена продажи',true);
+  const date=(value,name)=>{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(value||'')))throw new Error(`Проверьте дату: ${name}`);
+    const stamp=new Date(value+'T00:00:00Z');
+    if(!Number.isFinite(stamp.getTime())||stamp.toISOString().slice(0,10)!==value)throw new Error('Некорректная дата');
+    return value;
+  };
+  const purchased=date(body.purchased_at,'покупка');
+  const sold=sale===null?null:date(body.sold_at,'продажа');
+  if(sold&&sold<purchased)throw new Error('Продажа не может быть раньше покупки');
+  const costs=Object.fromEntries(['repair','delivery','commission','other'].map(k=>[k,amount(body[k]||0,k)]));
+  return {title,purchase,sale,costs,purchased,sold,profit:sale===null?null:sale-purchase-Object.values(costs).reduce((a,b)=>a+b,0)};
+}
+
 async function api(request, env, url) {
   let user;
   try {
@@ -237,6 +265,27 @@ async function api(request, env, url) {
   }
   const chatId = user.id;
   try {
+    if(request.method==='GET'&&url.pathname==='/api/trades'){
+      const parts=new Intl.DateTimeFormat('en',{timeZone:'Europe/Astrakhan',year:'numeric',month:'2-digit'}).formatToParts(new Date());
+      const month=parts.find(p=>p.type==='year').value+'-'+parts.find(p=>p.type==='month').value;
+      const [{results:trades},stats,{results:daily}]=await Promise.all([
+        env.DB.prepare('SELECT * FROM trade_book WHERE chat_id=? ORDER BY id DESC LIMIT 100').bind(chatId).all(),
+        env.DB.prepare('SELECT COUNT(*) AS sold_count, COALESCE(SUM(net_profit),0) AS profit FROM trade_book WHERE chat_id=? AND sold_at LIKE ?').bind(chatId,month+'%').first(),
+        env.DB.prepare('SELECT sold_at AS day,SUM(net_profit) AS profit FROM trade_book WHERE chat_id=? AND sold_at LIKE ? GROUP BY sold_at ORDER BY sold_at').bind(chatId,month+'%').all(),
+      ]);
+      return json({ok:true,trades:trades.map(t=>({...t,costs:JSON.parse(t.costs_json),costs_json:undefined})),stats, daily});
+    }
+    const tradeMatch=url.pathname.match(/^\/api\/trades\/(\d+)$/);
+    if((request.method==='POST'&&url.pathname==='/api/trades')||(request.method==='PATCH'&&tradeMatch)){
+      const body=await request.json(), fields=tradeFields(body);
+      const external=String(body.external_id||'').slice(0,100)||null;
+      if(external&&!await env.DB.prepare('SELECT 1 FROM watch_listings wl JOIN watches w ON w.id=wl.watch_id WHERE w.chat_id=? AND wl.external_id=? LIMIT 1').bind(chatId,external).first())throw new Error('Объявление недоступно');
+      if(tradeMatch){
+        const result=await env.DB.prepare('UPDATE trade_book SET title=?,purchase_price=?,sale_price=?,costs_json=?,net_profit=?,purchased_at=?,sold_at=? WHERE id=? AND chat_id=?').bind(fields.title,fields.purchase,fields.sale,JSON.stringify(fields.costs),fields.profit,fields.purchased,fields.sold,Number(tradeMatch[1]),chatId).run();
+        if(!result.meta.changes)return json({ok:false,error:'Сделка не найдена'},404);
+      }else await env.DB.prepare('INSERT INTO trade_book(chat_id,title,external_id,purchase_price,sale_price,costs_json,net_profit,purchased_at,sold_at) VALUES (?,?,?,?,?,?,?,?,?)').bind(chatId,fields.title,external,fields.purchase,fields.sale,JSON.stringify(fields.costs),fields.profit,fields.purchased,fields.sold).run();
+      return json({ok:true});
+    }
     if (request.method === "GET" && url.pathname === "/api/dashboard") {
       const [{ results: watches }, { results: deals }, listingCount, notificationCount] = await Promise.all([
         env.DB.prepare(

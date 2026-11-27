@@ -20,7 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install playwright==1.57.0
+      - run: pip install playwright==1.57.0 pytest pytest-asyncio
+      - run: pytest tests/test_mobile_avito.py -q
       - run: python tests/ui_workbench.py
       - uses: actions/upload-artifact@v4
         if: always()

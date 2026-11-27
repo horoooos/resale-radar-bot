@@ -3,9 +3,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../worker/src/index.js', import.meta.url), 'utf8');
-const { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions };').toString('base64')}`);
+const { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions, tradeFields } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector, comparableKey, inspectListing, assessListing, watchOptions, tradeFields };').toString('base64')}`);
 const listing = { external_id: 'test', title: 'Телефон', price: 10000, url: 'https://example.com/item', image_url: 'https://example.com/photo.jpg', description:'Полностью исправный телефон, всё проверено продавцом.', detail_status:'complete' };
 const result = { expected: 15000, costs: 1000, profit: 4000, roi: 40, confidence: 'задана пользователем', count: 0 };
+
+test('trade journal calculates actual net profit and leaves unsold stock unrealized',()=>{
+  const body={title:'iPhone 11',purchase_price:10000,sale_price:15000,purchased_at:'2026-11-20',sold_at:'2026-11-27',repair:1000,delivery:300,commission:500,other:200};
+  assert.equal(tradeFields(body).profit,3000);
+  assert.equal(tradeFields({...body,sale_price:'',sold_at:''}).profit,null);
+  assert.throws(()=>tradeFields({...body,sold_at:'2026-11-19'}));
+  assert.throws(()=>tradeFields({...body,purchased_at:'2026-02-30'}));
+  assert.throws(()=>tradeFields({...body,repair:-1}));
+});
 
 test('market comparisons distinguish phone model numbers and memory size', () => {
   assert.notEqual(comparableKey('iPhone 6, 32 ГБ'), comparableKey('iPhone 11, 32 ГБ'));
