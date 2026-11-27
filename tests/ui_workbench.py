@@ -17,6 +17,7 @@ fixture={'ok':True,'user':{'first_name':'Тест'},'source_connected':True,'sta
  'deals':[{'external_id':'a','title':'iPhone 11, 128 ГБ','price':10000,'url':'https://www.avito.ru/example','description':'Б/у. Полностью исправный телефон.','image_url':'','favorite':0,'dismissed':0,'analysis':None},
           {'external_id':'b','title':'iPhone 13, 128 ГБ','price':14000,'url':'https://www.avito.ru/example2','description':'Телефон продавца <script>window.pwned=true</script>','image_url':'','favorite':0,'dismissed':0,'analysis':None}]}
 calls=[]
+trade_fixture=[]
 def route_api(route):
     request=route.request
     path=urlsplit(request.url).path
@@ -25,7 +26,10 @@ def route_api(route):
     if path=='/api/listing-state':
         item=next(d for d in fixture['deals'] if d['external_id']==body['external_id'])
         item[body['action']]=int(body['value'])
-    response=fixture if path=='/api/dashboard' else {'ok':True,'history':[{'price':14000,'checked_at':'2026-11-27 10:00:00'}]} if path.startswith('/api/history/') else {'ok':True}
+    if path=='/api/trades' and request.method=='POST':
+        costs={k:int(body[k] or 0) for k in ('repair','delivery','commission','other')}
+        trade_fixture.append({'id':1,'title':body['title'],'purchase_price':int(body['purchase_price']),'sale_price':int(body['sale_price']),'purchased_at':body['purchased_at'],'sold_at':body['sold_at'],'net_profit':int(body['sale_price'])-int(body['purchase_price'])-sum(costs.values()),'costs':costs})
+    response=fixture if path=='/api/dashboard' else {'ok':True,'history':[{'price':14000,'checked_at':'2026-11-27 10:00:00'}]} if path.startswith('/api/history/') else {'ok':True,'trades':trade_fixture,'stats':{'profit':sum(t['net_profit'] for t in trade_fixture),'sold_count':len(trade_fixture)},'daily':[]} if path=='/api/trades' and request.method=='GET' else {'ok':True}
     route.fulfill(status=200,content_type='application/json',body=json.dumps(response))
 
 with sync_playwright() as pw:
@@ -82,6 +86,18 @@ with sync_playwright() as pw:
     page.get_by_role('button',name='Создать фильтр',exact=True).click()
     page.locator('#watch-modal').evaluate('el=>el.scrollTop=el.scrollHeight/2')
     page.screenshot(path='ui-artifacts/radar-settings-mobile.png')
+    page.locator('#watch-modal [data-close]').click()
+    page.locator('.bottom-nav [data-tab=trades]').click()
+    page.locator('[data-new-trade]').click()
+    form=page.locator('#trade-form')
+    for name,value in {'title':'Тестовая покупка','purchase_price':'10000','sale_price':'15000','purchased_at':'2026-11-20','sold_at':'2026-11-27','repair':'1000','delivery':'200','commission':'300'}.items():
+        form.locator(f'[name={name}]').fill(value)
+    form.get_by_role('button',name='Сохранить сделку').click()
+    expect(page.locator('#trade-profit')).to_have_text(re.compile(r'\+3\s500\s₽'))
+    page.screenshot(path='ui-artifacts/trades-mobile.png')
+    page.locator('.bottom-nav [data-tab=service]').click()
+    expect(page.locator('.plan-card')).to_contain_text('0 ₽')
+    page.screenshot(path='ui-artifacts/service-mobile.png')
     assert not errors,errors
     browser.close()
 server.shutdown()
