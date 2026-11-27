@@ -25,7 +25,7 @@ jobs:
           path: ~/.cache/camoufox
           key: camoufox-browser-ubuntu24-v1
       - run: python -m camoufox fetch
-      - run: python -m playwright install-deps firefox
+      - run: sudo apt-get install -y --no-install-recommends libgtk-3-0t64 libdbus-glib-1-2 libasound2t64
       - name: Scan saved searches and send results to bot
         env:
           WORKER_URL: ${{ secrets.WORKER_URL }}
