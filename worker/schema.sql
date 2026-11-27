@@ -24,6 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_history_item ON price_history(external_id, checke
 CREATE TABLE IF NOT EXISTS listing_states (chat_id INTEGER NOT NULL, external_id TEXT NOT NULL, favorite INTEGER NOT NULL DEFAULT 0, dismissed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat_id, external_id));
 CREATE TABLE IF NOT EXISTS trade_book (id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL, title TEXT NOT NULL, external_id TEXT, purchase_price INTEGER NOT NULL, sale_price INTEGER, costs_json TEXT NOT NULL, net_profit INTEGER, purchased_at TEXT NOT NULL, sold_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS idx_trade_owner ON trade_book(chat_id,sold_at);
+CREATE TABLE IF NOT EXISTS browser_sessions (engine TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 
 CREATE TABLE IF NOT EXISTS watch_sources (
   watch_id INTEGER PRIMARY KEY,

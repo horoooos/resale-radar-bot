@@ -167,7 +167,11 @@ async def main():
         print('No saved Avito searches; nothing to scan.')
         return
     async with AsyncCamoufox(headless=False, humanize=True) as browser:
-        context = await browser.new_context(viewport={'width':390,'height':844},has_touch=True)
+        stored=api('/collector/session?engine=camoufox').get('state')
+        context = await browser.new_context(viewport={'width':390,'height':844},has_touch=True,**({'storage_state':stored} if stored else {}))
+        fallback_driver=None
+        fallback_browser=None
+        engine='camoufox'
         failed = 0
         try:
             for index, watch in enumerate(watches):
@@ -183,7 +187,24 @@ async def main():
                     try:
                         cards = await catalog_cards(page)
                     except Exception:
-                        raise RuntimeError((await page.title())[:150]) from None
+                        first_error=(await page.title())[:150]
+                        print(json.dumps({'engine':'camoufox-mobile','status':'unavailable','fallback':'chrome-mobile','pause_seconds':30}),flush=True)
+                        api('/collector/session',{'engine':'camoufox','state':{'cookies':[],'origins':[]}})
+                        await page.close()
+                        await asyncio.sleep(30)
+                        from patchright.async_api import async_playwright
+                        fallback_driver=await async_playwright().start()
+                        fallback_browser=await fallback_driver.chromium.launch(channel='chrome',headless=False,args=['--use-gl=angle','--use-angle=gl-egl','--ignore-gpu-blocklist'])
+                        stored=api('/collector/session?engine=chrome').get('state')
+                        context=await fallback_browser.new_context(**fallback_driver.devices['Pixel 7'],**({'storage_state':stored} if stored else {}))
+                        engine='chrome'
+                        page=await context.new_page()
+                        await page.goto(url,wait_until='domcontentloaded',timeout=45000)
+                        try:
+                            cards=await catalog_cards(page)
+                        except Exception:
+                            api('/collector/session',{'engine':'chrome','state':{'cookies':[],'origins':[]}})
+                            raise RuntimeError(f'Firefox: {first_error}. Chrome: {(await page.title())[:100]}') from None
                     rows = await cards.evaluate_all(EXTRACT)
                     rows = rows[:20]
                     items = []
@@ -214,6 +235,7 @@ async def main():
                         items.append(row)
                     if not items:
                         raise RuntimeError('В выдаче нет доступных карточек с ценами')
+                    api('/collector/session',{'engine':engine,'state':await context.storage_state()})
                     sent = upload(watch['id'],items)
                     enriched = 0
                     for i, row in enumerate(items):
@@ -226,7 +248,7 @@ async def main():
                     market_count = await collect_market(context, items, set(configuration.get('market_keys', [])), cache)
                     if market_count:
                         sent += upload(watch['id'],items)
-                    print(json.dumps({'watch_id': watch['id'], 'received': len(items), 'details':sum(i.get('detail_status') == 'complete' for i in items), 'market_samples':market_count, 'photos': sum(bool(i.get('image_data')) for i in items), 'sent': sent}), flush=True)
+                    print(json.dumps({'engine':engine+'-mobile','watch_id': watch['id'], 'received': len(items), 'details':sum(i.get('detail_status') == 'complete' for i in items), 'market_samples':market_count, 'photos': sum(bool(i.get('image_data')) for i in items), 'sent': sent}), flush=True)
                 except Exception as error:
                     failed += 1
                     api('/collector/results', {'watch_id': watch['id'], 'error': str(error)[:250]})
@@ -235,6 +257,10 @@ async def main():
                     await page.close()
         finally:
             await context.close()
+            if fallback_browser:
+                await fallback_browser.close()
+            if fallback_driver:
+                await fallback_driver.stop()
         if failed:
             raise SystemExit(1)
 

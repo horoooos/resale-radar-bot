@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install camoufox
+      - run: pip install camoufox patchright
       - uses: actions/cache/restore@v4
         id: browser-cache
         with:

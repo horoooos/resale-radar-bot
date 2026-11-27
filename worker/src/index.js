@@ -3,7 +3,7 @@ const HELP = `<b>Resale Radar</b> оценивает объявления и п�
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control":"no-store", "x-content-type-options":"nosniff" },
   });
 
 function escapeHtml(value) {
@@ -789,6 +789,23 @@ async function collector(request, env, url) {
   const token = request.headers.get("X-Collector-Token") || "";
   if (!env.TELEGRAM_WEBHOOK_SECRET || !safeEqual(token, env.TELEGRAM_WEBHOOK_SECRET)) {
     return json({ ok: false }, 401);
+  }
+  if(url.pathname==='/collector/session'){
+    if(request.method==='GET'){
+      const engine=url.searchParams.get('engine');
+      if(!['camoufox','chrome'].includes(engine))return json({ok:false},400);
+      const row=await env.DB.prepare("SELECT payload FROM browser_sessions WHERE engine=? AND updated_at > datetime('now','-12 hours')").bind(engine).first();
+      return json({ok:true,state:row?JSON.parse(row.payload):null});
+    }
+    if(request.method==='POST'){
+      const body=await request.json();
+      if(!['camoufox','chrome'].includes(body.engine)||!Array.isArray(body.state?.cookies)||!Array.isArray(body.state?.origins))return json({ok:false},400);
+      const payload=JSON.stringify(body.state);
+      if(payload.length>300000)return json({ok:false},413);
+      await env.DB.prepare('INSERT OR REPLACE INTO browser_sessions(engine,payload,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)').bind(body.engine,payload).run();
+      return json({ok:true});
+    }
+    return json({ok:false},405);
   }
   if (request.method === "GET" && url.pathname === "/collector/watches") {
     const { results } = await env.DB.prepare(
