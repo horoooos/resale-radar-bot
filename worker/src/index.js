@@ -146,12 +146,13 @@ async function api(request, env, url) {
         ).bind(chatId).all(),
         env.DB.prepare(
           `SELECT l.external_id, l.title, l.price, l.url, l.category, l.location, l.published_at,
-                  l.raw_json, d.expected, d.costs, d.profit, d.roi, d.confidence, d.created_at
-           FROM deal_results d
-           JOIN watches w ON w.id = d.watch_id
-           JOIN listings l ON l.external_id = d.external_id
+                  l.raw_json, d.expected, d.costs, d.profit, d.roi, d.confidence, wl.found_at AS created_at
+           FROM watch_listings wl
+           JOIN watches w ON w.id = wl.watch_id
+           JOIN listings l ON l.external_id = wl.external_id
+           LEFT JOIN deal_results d ON d.watch_id=wl.watch_id AND d.external_id=wl.external_id
            WHERE w.chat_id = ?
-           ORDER BY d.created_at DESC LIMIT 30`,
+           ORDER BY wl.found_at DESC LIMIT 50`,
         ).bind(chatId).all(),
         env.DB.prepare("SELECT COUNT(*) AS count FROM listings").first(),
         env.DB.prepare(
@@ -375,7 +376,11 @@ async function comparablePrices(env, listing) {
 async function processListings(env, input, sourceWatch = null) {
   const watches = sourceWatch ? [sourceWatch] : (await env.DB.prepare("SELECT * FROM watches WHERE enabled = 1").all()).results;
   const validated = input.map(validateListing);
-  for (const listing of validated) await saveListing(env, listing);
+  for (const listing of validated) {
+    await saveListing(env, listing);
+    if (sourceWatch) await env.DB.prepare("INSERT OR IGNORE INTO watch_listings(watch_id,external_id) VALUES (?,?)")
+      .bind(sourceWatch.id, listing.external_id).run();
+  }
   let sent = 0;
   for (const listing of validated) {
     const prices = await comparablePrices(env, listing);
@@ -393,6 +398,8 @@ async function processListings(env, input, sourceWatch = null) {
       if (!watch.expected_sale_price && prices.length < Number(env.MIN_COMPARABLES || 3)) continue;
       const result = score(listing, watch, prices);
       if (!result) continue;
+      if (!sourceWatch) await env.DB.prepare("INSERT OR IGNORE INTO watch_listings(watch_id,external_id) VALUES (?,?)")
+        .bind(watch.id, listing.external_id).run();
       await sendDeal(env, watch.chat_id, listing, result);
       await env.DB.prepare(
         `INSERT OR REPLACE INTO deal_results

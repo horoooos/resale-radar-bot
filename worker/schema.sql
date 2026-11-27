@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS scan_status (
   error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS watch_listings (
+  watch_id INTEGER NOT NULL,
+  external_id TEXT NOT NULL,
+  found_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (watch_id, external_id)
+);
+
 CREATE TABLE IF NOT EXISTS listings (
   external_id TEXT PRIMARY KEY,
   title TEXT NOT NULL,

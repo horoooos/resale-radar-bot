@@ -11,7 +11,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 2
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 5 || 2 }}
     steps:
       - uses: actions/checkout@v6
         with:

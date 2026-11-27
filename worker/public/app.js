@@ -59,8 +59,8 @@ function renderDeals(deals) {
       <div class="deal-body">
         <h3>${escapeHtml(deal.title)}</h3>
         <div class="deal-price">${rubles.format(deal.price)} ₽</div>
-        <div class="deal-profit"><span>≈ +${rubles.format(deal.profit)} ₽</span><span>ROI ${Number(deal.roi).toFixed(1)}%</span></div>
-        <div class="deal-details">Продажа ≈ ${rubles.format(deal.expected)} ₽<br>${escapeHtml(deal.location || "Город не указан")} · оценка: ${escapeHtml(deal.confidence)}</div>
+        ${deal.profit != null ? `<div class="deal-profit"><span>≈ +${rubles.format(deal.profit)} ₽</span><span>ROI ${Number(deal.roi).toFixed(1)}%</span></div>` : '<div class="deal-details">Подходящая прибыль пока не подтверждена</div>'}
+        <div class="deal-details">${deal.expected ? `Продажа ≈ ${rubles.format(deal.expected)} ₽<br>` : ""}${escapeHtml(deal.location || "Город не указан")}${deal.confidence ? ` · оценка: ${escapeHtml(deal.confidence)}` : ""}</div>
         <button class="deal-open" type="button" data-source-url="${escapeHtml(deal.url)}">Открыть объявление ↗</button>
       </div>
     </article>`).join("");
