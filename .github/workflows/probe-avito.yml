@@ -1,0 +1,21 @@
+name: Test free Avito cloud access
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/probe_avito_cloud.py
+      - .github/workflows/probe-avito.yml
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install playwright==1.57.0
+      - run: python -m playwright install --with-deps chromium
+      - run: python scripts/probe_avito_cloud.py
