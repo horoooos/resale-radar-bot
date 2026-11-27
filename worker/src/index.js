@@ -538,22 +538,23 @@ async function collector(request, env, url) {
   if (request.method === "GET" && url.pathname === "/collector/watches") {
     const { results } = await env.DB.prepare(
       `SELECT w.*, s.source_url FROM watches w JOIN watch_sources s ON s.watch_id=w.id
-       WHERE w.enabled=1 ORDER BY w.id LIMIT 10`,
+       LEFT JOIN scan_status st ON st.watch_id=w.id
+       WHERE w.enabled=1 ORDER BY COALESCE(st.scanned_at, '1970-01-01') ASC, w.id LIMIT 1`,
     ).all();
     return json({ ok: true, watches: results.filter(w => isAllowed(w.chat_id, env)) });
   }
-  if (request.method === "POST" && url.pathname === "/collector/results") {
+  if (request.method === "POST" && ["/collector/results", "/collector/status"].includes(url.pathname)) {
     const body = await request.json();
     const watch = await env.DB.prepare("SELECT * FROM watches WHERE id=? AND enabled=1")
       .bind(Number(body.watch_id)).first();
     if (!watch || !isAllowed(watch.chat_id, env)) return json({ ok: false }, 404);
-    const items = Array.isArray(body.items) ? body.items.slice(0, 60) : [];
+    const items = Array.isArray(body.items) ? body.items.slice(0, 5) : [];
     let sent = 0;
     if (!body.error) sent = await processListings(env, items, watch);
     await env.DB.prepare(
       `INSERT OR REPLACE INTO scan_status(watch_id, scanned_at, item_count, error)
        VALUES (?, CURRENT_TIMESTAMP, ?, ?)`,
-    ).bind(watch.id, items.length, body.error ? String(body.error).slice(0, 300) : null).run();
+    ).bind(watch.id, url.pathname === "/collector/status" ? Math.min(60, Math.max(0, Number(body.count) || 0)) : items.length, body.error ? String(body.error).slice(0, 300) : null).run();
     return json({ ok: true, count: items.length, sent });
   }
   return json({ ok: false }, 404);

@@ -11,7 +11,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@v6
         with:
@@ -19,7 +19,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install patchright
+      - run: pip install camoufox
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/camoufox
+          key: camoufox-browser-ubuntu24-v1
+      - run: python -m camoufox fetch
+      - run: python -m playwright install-deps firefox
       - name: Scan saved searches and send results to bot
         env:
           WORKER_URL: ${{ secrets.WORKER_URL }}

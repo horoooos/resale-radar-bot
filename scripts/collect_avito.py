@@ -9,7 +9,7 @@ import os
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from patchright.async_api import async_playwright
+from camoufox.async_api import AsyncCamoufox
 
 BASE = os.environ['WORKER_URL'].rstrip('/')
 TOKEN = os.environ['COLLECTOR_TOKEN']
@@ -43,11 +43,8 @@ async def main():
     if not watches:
         print('No saved Avito searches; nothing to scan.')
         return
-    async with async_playwright() as pw:
-        context = await pw.chromium.launch_persistent_context(
-            '/tmp/resale-radar-chrome', channel='chrome', headless=False,
-            no_viewport=True, args=['--use-gl=angle', '--use-angle=gl-egl', '--ignore-gpu-blocklist', '--lang=ru-RU', '--window-size=1600,1000'],
-        )
+    async with AsyncCamoufox(headless=False, humanize=True) as browser:
+        context = await browser.new_context()
         failed = 0
         try:
             for index, watch in enumerate(watches):
@@ -74,8 +71,12 @@ async def main():
                         items.append(row)
                     if not items:
                         raise RuntimeError('В выдаче нет доступных карточек с ценами')
-                    result = api('/collector/results', {'watch_id': watch['id'], 'items': items})
-                    print(json.dumps({'watch_id': watch['id'], 'received': len(items), 'sent': result['sent']}), flush=True)
+                    sent = 0
+                    for offset in range(0, len(items), 5):
+                        result = api('/collector/results', {'watch_id': watch['id'], 'items': items[offset:offset + 5]})
+                        sent += result['sent']
+                    api('/collector/status', {'watch_id': watch['id'], 'count': len(items)})
+                    print(json.dumps({'watch_id': watch['id'], 'received': len(items), 'sent': sent}), flush=True)
                 except Exception as error:
                     failed += 1
                     api('/collector/results', {'watch_id': watch['id'], 'error': str(error)[:250]})
