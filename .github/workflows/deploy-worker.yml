@@ -61,6 +61,16 @@ jobs:
             --data "$(jq -n --arg url "${WORKER_URL}/telegram/webhook" --arg secret "$WEBHOOK_SECRET" \
               '{url: $url, secret_token: $secret, drop_pending_updates: false}')")
           echo "$response" | jq -e '.ok == true'
+          curl --fail-with-body --silent --show-error \
+            --request POST "https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton" \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -n --arg url "$WORKER_URL" '{menu_button: {type: "web_app", text: "Открыть приложение", web_app: {url: $url}}}')" \
+            | jq -e '.ok == true'
+          curl --fail-with-body --silent --show-error \
+            --request POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
+            --header 'Content-Type: application/json' \
+            --data '{"commands":[{"command":"start","description":"Открыть приложение"}]}' \
+            | jq -e '.ok == true'
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}

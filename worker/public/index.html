@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#090b0d" />
+    <title>Resale Radar</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">R</span><span>RESALE RADAR</span></div>
+        <div class="live"><i></i>24/7</div>
+      </header>
+
+      <section class="hero">
+        <p class="eyebrow">ПАНЕЛЬ ПЕРЕПРОДАЖИ</p>
+        <h1>Выгодные сделки<br /><em>раньше других.</em></h1>
+        <p id="welcome" class="hero-copy">Настройте критерии — радар рассчитает маржу и пришлёт сигнал в Telegram.</p>
+        <button class="primary" data-open="watch-modal">Создать фильтр</button>
+      </section>
+
+      <section class="stats" aria-label="Статистика">
+        <article><span id="watch-count">—</span><small>активных<br />фильтров</small></article>
+        <article><span id="listing-count">—</span><small>объявлений<br />в базе</small></article>
+        <article><span id="alert-count">—</span><small>выгодных<br />сигналов</small></article>
+      </section>
+
+      <section class="section-head">
+        <div><p class="eyebrow">МОИ НАСТРОЙКИ</p><h2>Активные фильтры</h2></div>
+        <button class="icon-button" data-open="watch-modal" aria-label="Добавить фильтр">+</button>
+      </section>
+      <section id="watch-list" class="watch-list" aria-live="polite">
+        <div class="skeleton"></div><div class="skeleton"></div>
+      </section>
+
+      <button class="listing-cta" data-open="listing-modal">
+        <span class="listing-icon">↗</span>
+        <span><b>Проверить объявление</b><small>Добавьте найденный товар и оцените его</small></span>
+      </button>
+
+      <footer>Расчёт является оценкой, а не гарантией прибыли. Проверяйте товар и продавца лично.</footer>
+    </main>
+
+    <dialog id="watch-modal">
+      <form id="watch-form" method="dialog">
+        <div class="modal-head"><div><p class="eyebrow">НОВЫЙ РАДАР</p><h2>Фильтр сделки</h2></div><button class="close" value="cancel" aria-label="Закрыть">×</button></div>
+        <label>Что ищем<input name="query" placeholder="Например, iPhone 13 128" required minlength="2" /></label>
+        <label>Категория<input name="category" placeholder="Электроника" /></label>
+        <div class="grid-two">
+          <label>Купить не дороже<input name="max_buy_price" type="number" min="1" inputmode="numeric" placeholder="35 000" required /></label>
+          <label>Продать примерно<input name="expected_sale_price" type="number" min="1" inputmode="numeric" placeholder="Автооценка" /></label>
+          <label>Прибыль от<input name="min_profit" type="number" min="0" inputmode="numeric" value="5000" required /></label>
+          <label>ROI от, %<input name="min_roi" type="number" min="0" step="0.1" inputmode="decimal" value="15" required /></label>
+        </div>
+        <button class="primary submit" type="submit">Запустить радар</button>
+      </form>
+    </dialog>
+
+    <dialog id="listing-modal">
+      <form id="listing-form" method="dialog">
+        <div class="modal-head"><div><p class="eyebrow">РУЧНАЯ ПРОВЕРКА</p><h2>Объявление</h2></div><button class="close" value="cancel" aria-label="Закрыть">×</button></div>
+        <label>Название<input name="title" placeholder="Точное название товара" required minlength="2" /></label>
+        <div class="grid-two">
+          <label>Цена<input name="price" type="number" min="1" inputmode="numeric" required /></label>
+          <label>Категория<input name="category" value="Другое" required /></label>
+        </div>
+        <label>Ссылка<input name="url" type="url" placeholder="https://…" required /></label>
+        <label>Город<input name="location" placeholder="Астрахань" /></label>
+        <button class="primary submit" type="submit">Проверить сделку</button>
+      </form>
+    </dialog>
+
+    <div id="toast" role="status"></div>
+  </body>
+</html>

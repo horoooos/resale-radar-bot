@@ -1,13 +1,4 @@
-const HELP = `<b>Resale Radar</b> ищет объявления с потенциальной маржой.
-
-<code>/watch запрос | макс_цена | цена_перепродажи | мин_прибыль | мин_ROI</code>
-Пример: <code>/watch iphone 13 128 | 35000 | 45000 | 5000 | 15</code>
-
-Вместо цены перепродажи можно указать <code>auto</code>.
-<code>/watches</code> — мои фильтры
-<code>/delwatch ID</code> — удалить фильтр
-<code>/add JSON</code> — добавить и проверить объявление
-<code>/help</code> — справка`;
+const HELP = `<b>Resale Radar</b> оценивает объявления и помогает находить варианты с потенциальной маржой. Управление фильтрами и объявлениями находится в приложении.`;
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -58,6 +49,136 @@ async function answer(env, chatId, text, extra = {}) {
     link_preview_options: { is_disabled: false },
     ...extra,
   });
+}
+
+function appKeyboard(env) {
+  return {
+    inline_keyboard: [[{ text: "Открыть Resale Radar", web_app: { url: env.APP_URL } }]],
+  };
+}
+
+function hex(bytes) {
+  return [...new Uint8Array(bytes)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function safeEqual(left, right) {
+  if (left.length !== right.length) return false;
+  let result = 0;
+  for (let index = 0; index < left.length; index += 1) result |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return result === 0;
+}
+
+async function telegramUser(request, env) {
+  const initData = request.headers.get("X-Telegram-Init-Data") || "";
+  if (!initData) throw new Error("Откройте приложение из Telegram");
+  const params = new URLSearchParams(initData);
+  const receivedHash = params.get("hash") || "";
+  params.delete("hash");
+  const authDate = Number(params.get("auth_date"));
+  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 86400) throw new Error("Сессия Telegram устарела");
+  const checkString = [...params.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode("WebAppData"),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const secret = await crypto.subtle.sign("HMAC", keyMaterial, encoder.encode(env.BOT_TOKEN));
+  const validationKey = await crypto.subtle.importKey(
+    "raw",
+    secret,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const calculatedHash = hex(await crypto.subtle.sign("HMAC", validationKey, encoder.encode(checkString)));
+  if (!safeEqual(calculatedHash, receivedHash)) throw new Error("Не удалось подтвердить вход через Telegram");
+  const user = JSON.parse(params.get("user") || "{}");
+  if (!user.id || !isAllowed(user.id, env)) throw new Error("У вас нет доступа к этому приложению");
+  return user;
+}
+
+function numberField(value, name, { nullable = false, minimum = 0 } = {}) {
+  if (nullable && (value === null || value === "" || value === undefined)) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < minimum) throw new Error(`Проверьте поле «${name}»`);
+  return parsed;
+}
+
+async function api(request, env, url) {
+  let user;
+  try {
+    user = await telegramUser(request, env);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 401);
+  }
+  const chatId = user.id;
+  try {
+    if (request.method === "GET" && url.pathname === "/api/dashboard") {
+      const [{ results: watches }, listingCount, notificationCount] = await Promise.all([
+        env.DB.prepare("SELECT * FROM watches WHERE chat_id = ? AND enabled = 1 ORDER BY id DESC").bind(chatId).all(),
+        env.DB.prepare("SELECT COUNT(*) AS count FROM listings").first(),
+        env.DB.prepare(
+          "SELECT COUNT(*) AS count FROM notifications n JOIN watches w ON w.id = n.watch_id WHERE w.chat_id = ?",
+        ).bind(chatId).first(),
+      ]);
+      return json({
+        ok: true,
+        user: { id: user.id, first_name: user.first_name || "" },
+        watches,
+        stats: { listings: Number(listingCount?.count || 0), alerts: Number(notificationCount?.count || 0) },
+      });
+    }
+    if (request.method === "POST" && url.pathname === "/api/watches") {
+      const body = await request.json();
+      const query = String(body.query || "").trim();
+      if (query.length < 2 || query.length > 100) throw new Error("Укажите товар для поиска");
+      const maxPrice = numberField(body.max_buy_price, "Максимальная цена", { minimum: 1 });
+      const expected = numberField(body.expected_sale_price, "Цена перепродажи", { nullable: true, minimum: 1 });
+      const minProfit = numberField(body.min_profit, "Минимальная прибыль", { minimum: 0 });
+      const minRoi = numberField(body.min_roi, "Минимальный ROI", { minimum: 0 });
+      const result = await env.DB.prepare(
+        `INSERT INTO watches
+         (chat_id, query, category, max_buy_price, expected_sale_price, min_profit, min_roi, sale_fee_percent, fixed_costs)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        chatId,
+        query,
+        String(body.category || "").trim() || null,
+        Math.round(maxPrice),
+        expected === null ? null : Math.round(expected),
+        Math.round(minProfit),
+        minRoi,
+        Number(env.DEFAULT_SALE_FEE_PERCENT || 5),
+        Number(env.DEFAULT_FIXED_COSTS || 500),
+      ).run();
+      return json({ ok: true, id: result.meta.last_row_id }, 201);
+    }
+    const deleteMatch = url.pathname.match(/^\/api\/watches\/(\d+)$/);
+    if (request.method === "DELETE" && deleteMatch) {
+      const result = await env.DB.prepare("DELETE FROM watches WHERE id = ? AND chat_id = ?")
+        .bind(Number(deleteMatch[1]), chatId)
+        .run();
+      return json({ ok: true, deleted: Boolean(result.meta.changes) });
+    }
+    if (request.method === "POST" && url.pathname === "/api/listings") {
+      const body = await request.json();
+      const listing = validateListing({
+        ...body,
+        external_id: body.external_id || `manual-${chatId}-${Date.now()}`,
+      });
+      const sent = await processListings(env, [listing]);
+      return json({ ok: true, sent }, 201);
+    }
+    return json({ ok: false, error: "Маршрут не найден" }, 404);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "Не удалось выполнить запрос" }, 400);
+  }
 }
 
 function validateListing(item) {
@@ -211,7 +332,9 @@ async function command(env, message) {
   const name = text.split(/\s/, 1)[0].split("@")[0].toLowerCase();
   const body = text.slice(text.indexOf(" ") + 1).trim();
   if (["/start", "/help"].includes(name)) {
-    await answer(env, chatId, HELP);
+    await answer(env, chatId, `${HELP}\n\nНажмите кнопку ниже, чтобы открыть приложение.`, {
+      reply_markup: appKeyboard(env),
+    });
     return;
   }
   if (name === "/watch") {
@@ -319,7 +442,8 @@ export default {
       return webhook(request, env, ctx);
     }
     if (url.pathname === "/health") return json({ ok: true, service: "resale-radar" });
-    return new Response("Resale Radar is running", { status: 200 });
+    if (url.pathname.startsWith("/api/")) return api(request, env, url);
+    return env.ASSETS.fetch(request);
   },
 
   async scheduled(_controller, env, ctx) {

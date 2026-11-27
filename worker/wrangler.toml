@@ -2,6 +2,11 @@ name = "resale-radar-bot"
 main = "src/index.js"
 compatibility_date = "2026-11-14"
 
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/telegram/*", "/health"]
+
 [triggers]
 crons = ["*/5 * * * *"]
 
@@ -19,4 +24,5 @@ MIN_COMPARABLES = "3"
 ALLOWED_USER_IDS = "815803688"
 # Необязательно. URL разрешённого JSON-feed с объявлениями.
 LISTINGS_FEED_URL = ""
+APP_URL = "https://resale-radar-bot.v039ro73.workers.dev"
 
