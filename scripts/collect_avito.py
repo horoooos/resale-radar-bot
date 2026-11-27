@@ -3,6 +3,7 @@
 This is an independent adapter, not a copy of upstream AGPL application code.
 """
 import asyncio
+import base64
 from datetime import datetime, timezone
 import json
 import os
@@ -69,12 +70,25 @@ async def main():
                         raise RuntimeError((await page.title())[:150]) from None
                     rows = await page.locator('[data-marker="catalog-serp"] [data-marker="item"]').evaluate_all(EXTRACT)
                     items = []
-                    for row in rows:
+                    cards = page.locator('[data-marker="catalog-serp"] [data-marker="item"]')
+                    for card_index, row in enumerate(rows):
                         if not row.get('external_id') or not row.get('title') or not row.get('url') or row.get('price', 0) <= 0:
                             continue
                         row['category'] = 'Телефоны' if '/telefony' in url else (watch.get('category') or 'Другое')
                         if not str(row.get('image_url', '')).startswith(('https://', 'http://')):
                             row['image_url'] = ''
+                        card = cards.nth(card_index)
+                        try:
+                            await card.scroll_into_view_if_needed(timeout=3000)
+                            await page.wait_for_timeout(200)
+                            image = card.locator('img, [data-marker="item-photo"], [data-marker="item-gallery"]').first
+                            if await image.count():
+                                await page.wait_for_timeout(150)
+                                picture = await image.screenshot(type='jpeg', quality=65, timeout=3000)
+                                if len(picture) < 100000:
+                                    row['image_data'] = base64.b64encode(picture).decode('ascii')
+                        except Exception:
+                            pass
                         row['published_at'] = datetime.now(timezone.utc).isoformat()
                         items.append(row)
                     if not items:
@@ -84,7 +98,7 @@ async def main():
                         result = api('/collector/results', {'watch_id': watch['id'], 'items': items[offset:offset + 5]})
                         sent += result['sent']
                     api('/collector/status', {'watch_id': watch['id'], 'count': len(items)})
-                    print(json.dumps({'watch_id': watch['id'], 'received': len(items), 'sent': sent}), flush=True)
+                    print(json.dumps({'watch_id': watch['id'], 'received': len(items), 'photos': sum(bool(i.get('image_data')) for i in items), 'sent': sent}), flush=True)
                 except Exception as error:
                     failed += 1
                     api('/collector/results', {'watch_id': watch['id'], 'error': str(error)[:250]})

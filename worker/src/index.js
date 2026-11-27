@@ -150,7 +150,7 @@ async function api(request, env, url) {
            FROM watch_listings wl
            JOIN watches w ON w.id = wl.watch_id
            JOIN listings l ON l.external_id = wl.external_id
-           LEFT JOIN deal_results d ON d.watch_id=wl.watch_id AND d.external_id=wl.external_id
+           LEFT JOIN deal_results_v2 d ON d.watch_id=wl.watch_id AND d.external_id=wl.external_id
            WHERE w.chat_id = ?
            ORDER BY wl.found_at DESC LIMIT 50`,
         ).bind(chatId).all(),
@@ -167,7 +167,7 @@ async function api(request, env, url) {
         scan_interval: "каждый час",
         deals: deals.map((deal) => ({
           ...deal,
-          image_url: photoUrl(JSON.parse(deal.raw_json || "{}").image_url || "", env),
+          image_url: JSON.parse(deal.raw_json || "{}").image_data ? `${env.APP_URL}/photo?id=${encodeURIComponent(deal.external_id)}` : photoUrl(JSON.parse(deal.raw_json || "{}").image_url || "", env),
           raw_json: undefined,
         })),
         stats: { listings: Number(listingCount?.count || 0), alerts: Number(notificationCount?.count || 0) },
@@ -247,6 +247,7 @@ function validateListing(item) {
     category: String(item.category || "Другое").trim(),
     location: String(item.location || "").trim(),
     image_url: String(item.image_url || "").trim(),
+    image_data: String(item.image_data || ""),
     published_at: String(item.published_at || new Date().toISOString()),
   };
   if (!listing.external_id || listing.title.length < 2) throw new Error("нет external_id или title");
@@ -257,6 +258,7 @@ function validateListing(item) {
     const imageUrl = new URL(listing.image_url);
     if (!['http:', 'https:'].includes(imageUrl.protocol)) throw new Error("image_url должен быть HTTP(S)-ссылкой");
   }
+  if (listing.image_data && (listing.image_data.length > 140000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(listing.image_data))) throw new Error("Некорректное фото");
   return listing;
 }
 
@@ -346,11 +348,11 @@ ROI: <b>${result.roi.toFixed(1)}%</b>
 async function sendDeal(env, chatId, listing, result) {
   const text = formatDeal(listing, result);
   const replyMarkup = { inline_keyboard: [[{ text: "Открыть объявление", url: listing.url }]] };
-  if (listing.image_url) {
+  if (listing.image_url || listing.image_data) {
     try {
       return await telegram(env, "sendPhoto", {
         chat_id: chatId,
-        photo: photoUrl(listing.image_url, env),
+        photo: listing.image_data ? `${env.APP_URL}/photo?id=${encodeURIComponent(listing.external_id)}` : photoUrl(listing.image_url, env),
         caption: text,
         parse_mode: "HTML",
         reply_markup: replyMarkup,
@@ -362,15 +364,19 @@ async function sendDeal(env, chatId, listing, result) {
   return answer(env, chatId, text, { reply_markup: replyMarkup });
 }
 
+function comparableKey(title) {
+  const text = String(title).toLowerCase().replaceAll("ё", "е");
+  const model = text.split(",")[0].replace(/[^a-zа-я0-9]/gu, "");
+  const memory = text.match(/(\d+)\s*(гб|gb|тб|tb)/iu);
+  return `${model}|${memory ? memory[1] + (/тб|tb/iu.test(memory[2]) ? "tb" : "gb") : "unknown"}`;
+}
+
 async function comparablePrices(env, listing) {
-  const tokens = words(listing.title).filter((word) => word.length > 2).slice(0, 4);
-  const clauses = tokens.map(() => "lower(title) LIKE ?").join(" AND ") || "1=1";
-  const statement = env.DB.prepare(
-    `SELECT price FROM listings WHERE ${clauses} AND external_id != ? AND category = ? LIMIT 100`,
-  );
-  const bindings = [...tokens.map((word) => `%${word}%`), listing.external_id, listing.category];
-  const { results } = await statement.bind(...bindings).all();
-  return results.map((row) => Number(row.price));
+  const { results } = await env.DB.prepare(
+    "SELECT title, price FROM listings WHERE external_id != ? AND category = ? ORDER BY published_at DESC LIMIT 200",
+  ).bind(listing.external_id, listing.category).all();
+  const key = comparableKey(listing.title);
+  return results.filter(row => comparableKey(row.title) === key).map(row => Number(row.price));
 }
 
 async function processListings(env, input, sourceWatch = null) {
@@ -401,7 +407,7 @@ async function processListings(env, input, sourceWatch = null) {
         .bind(watch.id, listing.external_id).run();
       await sendDeal(env, watch.chat_id, listing, result);
       await env.DB.prepare(
-        `INSERT OR REPLACE INTO deal_results
+        `INSERT OR REPLACE INTO deal_results_v2
          (watch_id, external_id, expected, costs, profit, roi, confidence, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       ).bind(
@@ -547,7 +553,14 @@ function photoUrl(url, env) {
   return env.APP_URL && avitoImage(url) ? `${env.APP_URL}/photo?url=${encodeURIComponent(url)}` : url;
 }
 
-async function photo(requestUrl) {
+async function photo(requestUrl, env) {
+  const id = requestUrl.searchParams.get("id");
+  if (id) {
+    const row = await env.DB.prepare("SELECT raw_json FROM listings WHERE external_id=?").bind(id).first();
+    const data = row ? JSON.parse(row.raw_json).image_data : null;
+    if (!data) return new Response("Image unavailable", { status: 404 });
+    return new Response(Uint8Array.from(atob(data), c => c.charCodeAt(0)), { headers: { "content-type": "image/jpeg", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
+  }
   const url = requestUrl.searchParams.get("url") || "";
   if (!avitoImage(url)) return new Response("Invalid image", { status: 400 });
   const response = await fetch(url, { headers: { Referer: "https://www.avito.ru/" }, redirect: "error", signal: AbortSignal.timeout(15000) });
@@ -588,7 +601,7 @@ async function collector(request, env, url) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname === "/photo") return photo(url);
+    if (url.pathname === "/photo") return photo(url, env);
     if (url.pathname.startsWith("/collector/")) return collector(request, env, url);
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
       return webhook(request, env, ctx);

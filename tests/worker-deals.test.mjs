@@ -3,9 +3,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../worker/src/index.js', import.meta.url), 'utf8');
-const { validateListing, sendDeal, collector } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector };').toString('base64')}`);
+const { validateListing, sendDeal, collector, comparableKey } = await import(`data:text/javascript;base64,${Buffer.from(source + '\nexport { validateListing, sendDeal, collector, comparableKey };').toString('base64')}`);
 const listing = { external_id: 'test', title: 'Телефон', price: 10000, url: 'https://example.com/item', image_url: 'https://example.com/photo.jpg' };
 const result = { expected: 15000, costs: 1000, profit: 4000, roi: 40, confidence: 'задана пользователем', count: 0 };
+
+test('market comparisons distinguish phone model numbers and memory size', () => {
+  assert.notEqual(comparableKey('iPhone 6, 32 ГБ'), comparableKey('iPhone 11, 32 ГБ'));
+  assert.notEqual(comparableKey('iPhone 11, 64 ГБ'), comparableKey('iPhone 11, 128 ГБ'));
+  assert.notEqual(comparableKey('iPhone 11 Pro, 128 ГБ'), comparableKey('iPhone 11, 128 ГБ'));
+  assert.equal(comparableKey('iPhone 11, 128 ГБ, 1 SIM'), comparableKey('iPhone 11, 128 ГБ, SIM + eSIM'));
+});
 
 test('validates optional listing photo and rejects executable URLs', () => {
   assert.equal(validateListing(listing).image_url, listing.image_url);
