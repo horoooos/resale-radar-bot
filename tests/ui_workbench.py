@@ -71,6 +71,10 @@ with sync_playwright() as pw:
     page.locator('#feed-min').fill('')
     page.get_by_role('button',name='Фильтры находок').click()
     page.set_viewport_size({'width':390,'height':844})
+    page.wait_for_timeout(200)
+    for tab in ('finds','searches','trades','service'):
+        expect(page.locator(f'.bottom-nav [data-tab={tab}]')).to_be_in_viewport()
+    print('Mobile navigation:',page.locator('.bottom-nav').evaluate("el=>({box:el.getBoundingClientRect().toJSON(),text:el.innerText,children:[...el.children].map(c=>({box:c.getBoundingClientRect().toJSON(),display:getComputedStyle(c).display,visibility:getComputedStyle(c).visibility,color:getComputedStyle(c).color}))})"))
     assert page.evaluate('document.documentElement.scrollWidth')<=390
     Path('ui-artifacts').mkdir(exist_ok=True)
     page.screenshot(path='ui-artifacts/workbench-mobile.png',full_page=True)
