@@ -166,7 +166,7 @@ async function api(request, env, url) {
         scan_interval: "каждый час",
         deals: deals.map((deal) => ({
           ...deal,
-          image_url: JSON.parse(deal.raw_json || "{}").image_url || "",
+          image_url: photoUrl(JSON.parse(deal.raw_json || "{}").image_url || "", env),
           raw_json: undefined,
         })),
         stats: { listings: Number(listingCount?.count || 0), alerts: Number(notificationCount?.count || 0) },
@@ -349,7 +349,7 @@ async function sendDeal(env, chatId, listing, result) {
     try {
       return await telegram(env, "sendPhoto", {
         chat_id: chatId,
-        photo: listing.image_url,
+        photo: photoUrl(listing.image_url, env),
         caption: text,
         parse_mode: "HTML",
         reply_markup: replyMarkup,
@@ -530,6 +530,25 @@ async function scanFeed(env) {
   await processListings(env, items);
 }
 
+function avitoImage(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && (parsed.hostname.endsWith(".avito.st") || parsed.hostname.endsWith(".avito.ru"));
+  } catch { return false; }
+}
+
+function photoUrl(url, env) {
+  return env.APP_URL && avitoImage(url) ? `${env.APP_URL}/photo?url=${encodeURIComponent(url)}` : url;
+}
+
+async function photo(requestUrl) {
+  const url = requestUrl.searchParams.get("url") || "";
+  if (!avitoImage(url)) return new Response("Invalid image", { status: 400 });
+  const response = await fetch(url, { headers: { Referer: "https://www.avito.ru/" }, redirect: "error", signal: AbortSignal.timeout(15000) });
+  if (!response.ok || !response.headers.get("content-type")?.startsWith("image/")) return new Response("Image unavailable", { status: 404 });
+  return new Response(response.body, { headers: { "content-type": response.headers.get("content-type"), "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
+}
+
 async function collector(request, env, url) {
   const token = request.headers.get("X-Collector-Token") || "";
   if (!env.TELEGRAM_WEBHOOK_SECRET || !safeEqual(token, env.TELEGRAM_WEBHOOK_SECRET)) {
@@ -563,6 +582,7 @@ async function collector(request, env, url) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === "/photo") return photo(url);
     if (url.pathname.startsWith("/collector/")) return collector(request, env, url);
     if (request.method === "POST" && url.pathname === "/telegram/webhook") {
       return webhook(request, env, ctx);
