@@ -1,0 +1,52 @@
+name: Test more free Avito approaches
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/test_more_parsers.py
+      - .github/workflows/test-more-parsers.yml
+permissions:
+  contents: read
+jobs:
+  live:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: case
+            repo: Case211/avito-watch
+            ref: 36582eafe68f2da1dc7df8de3a5298fb6ca8376d
+          - backend: camoufox
+            repo: DanilFaritovich/avito-parser
+            ref: 35043871ae58a27d171f7839ecc5bbb6453f5692
+          - backend: egor
+            repo: Egor01KKK/avito-parser
+            ref: ababf028a4fe225982456f573c64e95dbec9c782
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.ref }}
+          path: .candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install beautifulsoup4 python-dotenv
+      - if: matrix.backend == 'case'
+        run: pip install patchright
+      - if: matrix.backend == 'camoufox'
+        run: pip install 'camoufox[geoip]'
+      - if: matrix.backend == 'camoufox'
+        run: python -m camoufox fetch && python -m playwright install-deps firefox
+      - if: matrix.backend == 'egor'
+        run: pip install 'curl_cffi>=0.15.0'
+      - name: Live upstream test
+        env:
+          BACKEND: ${{ matrix.backend }}
+        run: timeout 180 xvfb-run -a python scripts/test_more_parsers.py "$BACKEND"
