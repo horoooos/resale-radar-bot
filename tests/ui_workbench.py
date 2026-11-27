@@ -2,11 +2,12 @@
 import functools
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import json
+import re
 from pathlib import Path
 import threading
 from urllib.parse import urlsplit
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 
 root=Path(__file__).resolve().parents[1]
 server=ThreadingHTTPServer(('127.0.0.1',8765),functools.partial(SimpleHTTPRequestHandler,directory=str(root/'worker/public')))
@@ -47,14 +48,15 @@ with sync_playwright() as pw:
     page.locator('#watch-modal [data-close]').click()
     assert not page.locator('#watch-modal').is_visible()
     page.locator('[data-favorite=a]').click()
+    expect(page.locator('[data-favorite=a]')).to_have_class(re.compile('active'))
     page.locator('#feed-mode').select_option('favorite')
-    assert page.locator('.deal-card').count()==1
+    expect(page.locator('.deal-card')).to_have_count(1)
     page.locator('[data-dismiss=a]').click()
-    page.wait_for_timeout(100)
-    assert page.locator('.deal-card').count()==0
+    expect(page.locator('.deal-card')).to_have_count(0)
     page.locator('#feed-mode').select_option('hidden')
-    assert page.locator('.deal-card').count()==1
+    expect(page.locator('.deal-card')).to_have_count(1)
     page.locator('[data-dismiss=a]').click()
+    expect(page.locator('.deal-card')).to_have_count(0)
     page.locator('#feed-mode').select_option('all')
     page.locator('#feed-min').fill('12000')
     assert page.locator('.deal-card').count()==1

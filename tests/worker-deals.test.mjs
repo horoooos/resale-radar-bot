@@ -23,6 +23,8 @@ test('description checks distinguish unknown delivery, negative delivery and sel
   assert.equal(inspectListing({...listing,description:'Аккумулятор 76%, есть трещина на стекле.'}).battery,76);
   assert.ok(inspectListing({...listing,description:'Не включается, на запчасти.'}).risks.length);
   assert.equal(inspectListing({...listing,description:'Телефон не заблокирован. Экран без трещин.'}).risks.length,0);
+  assert.equal(inspectListing({...listing,description:'Авито доставкой не пользуюсь, только встреча.'}).delivery,false);
+  assert.equal(inspectListing({...listing,description:'Батарея 100% заряда, телефон включён.'}).battery,null);
 });
 
 const phone={...listing,title:'iPhone 11, 128 ГБ',price:10000,category:'Телефоны',delivery:true,condition:'Б/у'};

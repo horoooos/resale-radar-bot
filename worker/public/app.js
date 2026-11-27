@@ -8,6 +8,7 @@ const initData = tg?.initData || "";
 const rubles = new Intl.NumberFormat("ru-RU");
 const $ = (selector) => document.querySelector(selector);
 let dashboard = { watches: [], deals: [] };
+let loadVersion = 0;
 
 function toast(message, error = false) {
   const element = $("#toast");
@@ -118,6 +119,7 @@ function escapeHtml(value) {
 }
 
 async function load() {
+  const version=++loadVersion;
   if (!initData) {
     $("#watch-list").innerHTML = '<div class="empty">Откройте приложение кнопкой внутри Telegram, чтобы увидеть свои фильтры.</div>';
     $("#welcome").textContent = "Интерфейс готов. Для защищённого входа откройте его из чата с ботом.";
@@ -125,6 +127,7 @@ async function load() {
   }
   try {
     const data = await api("/api/dashboard");
+    if(version!==loadVersion)return;
     dashboard=data;
     if (data.user.first_name) $("#welcome").textContent = `${data.user.first_name}, настройте критерии — радар рассчитает маржу и пришлёт сигнал в Telegram.`;
     $("#watch-count").textContent = data.watches.filter(w=>w.enabled).length;
@@ -158,9 +161,10 @@ document.addEventListener("click", async (event) => {
   if(toggle){try{const watch=dashboard.watches.find(w=>w.id===Number(toggle.dataset.toggle));await api(`/api/watches/${watch.id}`,{method:'PATCH',body:JSON.stringify({enabled:!watch.enabled})});await load();}catch(error){toast(error.message,true);} return;}
   const favorite=event.target.closest('[data-favorite]'), dismiss=event.target.closest('[data-dismiss]');
   if(favorite||dismiss){
+    (favorite||dismiss).disabled=true;
     const id=favorite?.dataset.favorite||dismiss.dataset.dismiss;
     const deal=dashboard.deals.find(d=>d.external_id===id);
-    try{await api('/api/listing-state',{method:'POST',body:JSON.stringify({external_id:id,action:favorite?'favorite':'dismissed',value:favorite?!deal.favorite:!deal.dismissed})});await load();}catch(error){toast(error.message,true);} return;
+    try{await api('/api/listing-state',{method:'POST',body:JSON.stringify({external_id:id,action:favorite?'favorite':'dismissed',value:favorite?!deal.favorite:!deal.dismissed})});await load();}catch(error){(favorite||dismiss).disabled=false;toast(error.message,true);} return;
   }
   const closer = event.target.closest("[data-close]");
   if (closer) {

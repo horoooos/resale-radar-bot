@@ -142,10 +142,10 @@ function inspectListing(listing) {
     return [{ label, evidence: text.slice(Math.max(0, match.index - 25), match.index + match[0].length + 65).trim() }];
   });
   const battery = /(?:акб|аккумулятор|батаре[яи]|battery)[^\d\n]{0,25}(\d{2,3})\s*%/iu.exec(text);
-  const batteryPercent = battery && Number(battery[1]) <= 100 ? Number(battery[1]) : null;
+  const batteryPercent = battery && Number(battery[1]) <= 100 && !/заряд/iu.test(text.slice(battery.index+battery[0].length,battery.index+battery[0].length+25)) ? Number(battery[1]) : null;
   if (batteryPercent !== null && batteryPercent < 80) risks.push({ label: 'Изношенный аккумулятор', evidence: `${batteryPercent}% по описанию` });
   let delivery = typeof listing.delivery === 'boolean' ? listing.delivery : null;
-  if (/без\s+доставки|доставк[аи]\s+нет|не\s+отправляю|только\s+самовывоз/iu.test(listing.description || '')) delivery = false;
+  if (/без\s+доставки|доставк[аи]\s+нет|не\s+отправляю|доставк[а-яё]*\s+не\s+(?:пользуюсь|занимаюсь|работаю)|только\s+самовывоз/iu.test(listing.description || '')) delivery = false;
   else if (delivery === null && /отправлю\s+авито|авито\s+доставк[аой]|отправляю\s+доставкой/iu.test(listing.description || '')) delivery = true;
   return { risks, battery: batteryPercent, delivery, condition: listing.condition || 'Не указано',
     details_checked: listing.detail_status === 'complete' && String(listing.description || '').trim().length >= 15,
