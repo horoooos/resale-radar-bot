@@ -40,7 +40,7 @@ EXTRACT = """cards => cards.map(c => {
   const place = c.querySelector('[data-marker="item-location"]');
   return {external_id: c.dataset.itemId, title: link?.textContent?.trim(),
     url: link?.href, price: Number(price?.getAttribute('content')),
-    image_url: photo?.currentSrc || photo?.src || '', location: place?.textContent?.trim() || ''};
+    image_url: photo?.srcset?.split(',').at(-1)?.trim()?.split(' ')[0] || photo?.currentSrc || photo?.src || '', location: place?.textContent?.trim() || ''};
 })"""
 
 
@@ -73,6 +73,8 @@ async def main():
                         if not row.get('external_id') or not row.get('title') or not row.get('url') or row.get('price', 0) <= 0:
                             continue
                         row['category'] = 'Телефоны' if '/telefony' in url else (watch.get('category') or 'Другое')
+                        if not str(row.get('image_url', '')).startswith(('https://', 'http://')):
+                            row['image_url'] = ''
                         row['published_at'] = datetime.now(timezone.utc).isoformat()
                         items.append(row)
                     if not items:
