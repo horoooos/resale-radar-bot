@@ -110,6 +110,23 @@ function numberField(value, name, { nullable = false, minimum = 0 } = {}) {
   return parsed;
 }
 
+function avitoSearchUrl(value) {
+  const input = String(value || "").trim();
+  if (!input) return null;
+  let parsed;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error("Проверьте ссылку на поиск Avito");
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (parsed.protocol !== "https:" || (hostname !== "avito.ru" && !hostname.endsWith(".avito.ru"))) {
+    throw new Error("Нужна HTTPS-ссылка на поиск с avito.ru");
+  }
+  if (input.length > 3000) throw new Error("Ссылка на поиск слишком длинная");
+  return parsed.toString();
+}
+
 async function api(request, env, url) {
   let user;
   try {
@@ -121,7 +138,11 @@ async function api(request, env, url) {
   try {
     if (request.method === "GET" && url.pathname === "/api/dashboard") {
       const [{ results: watches }, listingCount, notificationCount] = await Promise.all([
-        env.DB.prepare("SELECT * FROM watches WHERE chat_id = ? AND enabled = 1 ORDER BY id DESC").bind(chatId).all(),
+        env.DB.prepare(
+          `SELECT w.*, s.source_url
+           FROM watches w LEFT JOIN watch_sources s ON s.watch_id = w.id
+           WHERE w.chat_id = ? AND w.enabled = 1 ORDER BY w.id DESC`,
+        ).bind(chatId).all(),
         env.DB.prepare("SELECT COUNT(*) AS count FROM listings").first(),
         env.DB.prepare(
           "SELECT COUNT(*) AS count FROM notifications n JOIN watches w ON w.id = n.watch_id WHERE w.chat_id = ?",
@@ -136,7 +157,9 @@ async function api(request, env, url) {
     }
     if (request.method === "POST" && url.pathname === "/api/watches") {
       const body = await request.json();
-      const query = String(body.query || "").trim();
+      const sourceUrl = avitoSearchUrl(body.source_url);
+      const queryInput = String(body.query || "").trim();
+      const query = queryInput || (sourceUrl ? "Поиск по ссылке Avito" : "");
       if (query.length < 2 || query.length > 100) throw new Error("Укажите товар для поиска");
       const maxPrice = numberField(body.max_buy_price, "Максимальная цена", { minimum: 1 });
       const expected = numberField(body.expected_sale_price, "Цена перепродажи", { nullable: true, minimum: 1 });
@@ -157,12 +180,21 @@ async function api(request, env, url) {
         Number(env.DEFAULT_SALE_FEE_PERCENT || 5),
         Number(env.DEFAULT_FIXED_COSTS || 500),
       ).run();
+      if (sourceUrl) {
+        await env.DB.prepare("INSERT INTO watch_sources (watch_id, source_url) VALUES (?, ?)")
+          .bind(result.meta.last_row_id, sourceUrl)
+          .run();
+      }
       return json({ ok: true, id: result.meta.last_row_id }, 201);
     }
     const deleteMatch = url.pathname.match(/^\/api\/watches\/(\d+)$/);
     if (request.method === "DELETE" && deleteMatch) {
+      const watchId = Number(deleteMatch[1]);
+      await env.DB.prepare(
+        "DELETE FROM watch_sources WHERE watch_id IN (SELECT id FROM watches WHERE id = ? AND chat_id = ?)",
+      ).bind(watchId, chatId).run();
       const result = await env.DB.prepare("DELETE FROM watches WHERE id = ? AND chat_id = ?")
-        .bind(Number(deleteMatch[1]), chatId)
+        .bind(watchId, chatId)
         .run();
       return json({ ok: true, deleted: Boolean(result.meta.changes) });
     }

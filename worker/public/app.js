@@ -42,6 +42,7 @@ function renderWatches(watches) {
         <span class="chip">ROI от ${watch.min_roi}%</span>
         <span class="chip">${watch.expected_sale_price ? `продажа ${rubles.format(watch.expected_sale_price)} ₽` : "автооценка"}</span>
       </div>
+      ${watch.source_url ? `<button class="source-link" type="button" data-source-url="${escapeHtml(watch.source_url)}">Открыть поиск Avito ↗</button>` : ""}
     </article>`).join("");
 }
 
@@ -81,6 +82,13 @@ document.addEventListener("click", async (event) => {
   if (opener) {
     if (!initData) return toast("Откройте приложение внутри Telegram", true);
     $(`#${opener.dataset.open}`).showModal();
+  }
+  const sourceLink = event.target.closest("[data-source-url]");
+  if (sourceLink) {
+    const url = sourceLink.dataset.sourceUrl;
+    if (tg?.openLink) tg.openLink(url);
+    else window.open(url, "_blank", "noopener,noreferrer");
+    return;
   }
   const remove = event.target.closest("[data-delete]");
   if (remove) {

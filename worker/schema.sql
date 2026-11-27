@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS watches (
 
 CREATE INDEX IF NOT EXISTS idx_watches_chat ON watches(chat_id, enabled);
 
+CREATE TABLE IF NOT EXISTS watch_sources (
+  watch_id INTEGER PRIMARY KEY,
+  source_url TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS listings (
   external_id TEXT PRIMARY KEY,
   title TEXT NOT NULL,

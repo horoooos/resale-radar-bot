@@ -6,6 +6,11 @@
     <meta name="theme-color" content="#090b0d" />
     <title>Resale Radar</title>
     <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .optional { color: #6f7980; font-size: 0.72rem; font-weight: 500; }
+      .field-note { margin: -9px 0 16px; color: #778188; font-size: 0.76rem; line-height: 1.4; }
+      .source-link { margin-top: 14px; padding: 10px 12px; border: 1px solid #4b6729; border-radius: 10px; background: #192214; color: var(--lime); font: inherit; font-size: 0.8rem; font-weight: 750; }
+    </style>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="/app.js" defer></script>
   </head>
@@ -48,7 +53,9 @@
     <dialog id="watch-modal">
       <form id="watch-form" method="dialog">
         <div class="modal-head"><div><p class="eyebrow">НОВЫЙ РАДАР</p><h2>Фильтр сделки</h2></div><button class="close" type="button" data-close aria-label="Закрыть">×</button></div>
-        <label>Что ищем<input name="query" placeholder="Например, iPhone 13 128" required minlength="2" /></label>
+        <label>Ссылка на поиск Avito <span class="optional">необязательно</span><input name="source_url" type="url" inputmode="url" placeholder="https://www.avito.ru/…" /></label>
+        <p class="field-note">Можно вставить готовый поиск Avito со всеми фильтрами цены, категории и сортировки.</p>
+        <label>Что ищем / название радара<input name="query" placeholder="Например, телефоны до 15 000 ₽" minlength="2" /></label>
         <label>Категория<input name="category" placeholder="Электроника" /></label>
         <div class="grid-two">
           <label>Купить не дороже<input name="max_buy_price" type="number" min="1" inputmode="numeric" placeholder="35 000" required /></label>
