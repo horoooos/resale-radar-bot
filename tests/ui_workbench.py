@@ -60,7 +60,8 @@ with sync_playwright() as pw:
     page.locator('#feed-mode').select_option('all')
     page.locator('#feed-min').fill('12000')
     assert page.locator('.deal-card').count()==1
-    page.locator('[data-detail=b]').click()
+    page.locator('.deal-card h3').click()
+    expect(page.locator('#deal-modal')).to_be_visible()
     assert '<script>' in page.locator('#deal-content').inner_text()
     assert page.evaluate('window.pwned') is None
     page.locator('#deal-modal [data-close]').click()

@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 from camoufox.async_api import AsyncCamoufox
+from mobile_avito import mobile_url, parse_mobile_facts
 
 BASE = os.environ['WORKER_URL'].strip().rstrip('/')
 TOKEN = os.environ['COLLECTOR_TOKEN']
@@ -56,6 +57,12 @@ def model_key(title):
     return model + '|' + (memory[1] + ('tb' if memory[2] in ('тб', 'tb') else 'gb') if memory else 'unknown') + ('|ram'+ram[1] if ram else '')
 
 
+async def catalog_cards(page, timeout=30000):
+    await page.wait_for_selector('[data-marker="catalog-serp"], [data-marker="item"]',timeout=timeout)
+    container=page.locator('[data-marker="catalog-serp"]')
+    return container.locator('[data-marker="item"]') if await container.count() else page.locator('[data-marker="item"]')
+
+
 async def details(context, row):
     result = {**row, 'detail_status': 'pending', 'details_attempted_at':datetime.now(timezone.utc).isoformat()}
     parsed = urlsplit(row.get('url', ''))
@@ -63,9 +70,17 @@ async def details(context, row):
         return result
     page = await context.new_page()
     try:
-        await page.goto(row['url'], wait_until='domcontentloaded', timeout=25000)
-        description = page.locator('[data-marker="item-view/item-description"], [itemprop="description"]').first
+        result['url']=mobile_url(row['url'])
+        await page.goto(result['url'], wait_until='domcontentloaded', timeout=25000)
+        expand=page.get_by_text(re.compile(r'^Читать (?:полностью|подробнее)$',re.I))
+        if await expand.count():
+            try: await expand.first.click(timeout=1500)
+            except Exception: pass
+        description = page.locator('[data-marker="item-view/item-description"], [data-marker="item-description"], [itemprop="description"]').first
         await description.wait_for(timeout=10000)
+        mobile_facts=parse_mobile_facts((await page.locator('body').inner_text())[:30000])
+        result.update(mobile_facts)
+        result['mobile_fields_version']=1
         text = (await description.inner_text()).strip()
         if len(text) < 15:
             return result
@@ -75,7 +90,7 @@ async def details(context, row):
         condition = re.search(r'Состояние\s*:\s*([^\n]+)', param_text)
         if not condition:
             condition = re.search(r'Состояние\s*:\s*([^\n]+)', (await page.locator('body').inner_text())[:15000])
-        result['condition'] = condition[1].strip() if condition else ''
+        result['condition'] = mobile_facts['condition'] or (condition[1].strip() if condition else '')
         seller = page.locator('[data-marker="seller-info/name"], [data-marker="seller-info"]')
         seller_text = ' '.join(await seller.all_inner_texts())
         result['seller_type'] = 'private' if 'Частное лицо' in seller_text else 'business' if any(w in seller_text for w in ['Компания', 'Магазин']) else 'unknown'
@@ -102,16 +117,16 @@ async def collect_market(context, rows, known_keys, cache):
         try:
             query = ', '.join(title.split(',')[:2])
             url = 'https://www.avito.ru/all/telefony/mobile-ASgBAgICAUSwwQ2I_Dc?' + urlencode({'q':query, 's':'104'})
-            await page.goto(url, wait_until='domcontentloaded', timeout=25000)
-            await page.wait_for_selector('[data-marker="catalog-serp"]', timeout=15000)
-            candidates = await page.locator('[data-marker="catalog-serp"] [data-marker="item"]').evaluate_all(EXTRACT)
+            await page.goto(mobile_url(url), wait_until='domcontentloaded', timeout=25000)
+            market_cards=await catalog_cards(page,timeout=15000)
+            candidates = await market_cards.evaluate_all(EXTRACT)
             candidates = [r for r in candidates if r.get('title') and r.get('external_id') and r.get('price', 0) > 0 and model_key(r['title']) == key][:8]
             for candidate in candidates[:6]:
                 candidate['category'] = 'Телефоны'
                 candidate['published_at'] = datetime.now(timezone.utc).isoformat()
                 cached = cache.get(str(candidate['external_id']))
                 if cached and cached.get('detail_status') == 'complete':
-                    candidate.update({k: cached.get(k) for k in ['description','detail_status','condition','delivery','seller_type','details_checked_at']})
+                    candidate.update({k: cached.get(k) for k in ['description','detail_status','condition','delivery','seller_type','details_checked_at','avito_price_status','avito_price_label','specs','recommendation_search','mobile_fields_version']})
                 else:
                     await asyncio.sleep(2)
                     candidate = await details(context, candidate)
@@ -152,7 +167,7 @@ async def main():
         print('No saved Avito searches; nothing to scan.')
         return
     async with AsyncCamoufox(headless=False, humanize=True) as browser:
-        context = await browser.new_context()
+        context = await browser.new_context(viewport={'width':390,'height':844},has_touch=True)
         failed = 0
         try:
             for index, watch in enumerate(watches):
@@ -160,19 +175,18 @@ async def main():
                     await asyncio.sleep(30)
                 page = await context.new_page()
                 try:
-                    url = watch['source_url']
+                    url = mobile_url(watch['source_url'])
                     host = urlsplit(url).hostname or ''
                     if urlsplit(url).scheme != 'https' or not (host == 'avito.ru' or host.endswith('.avito.ru')):
                         raise ValueError('Некорректная ссылка Avito')
                     await page.goto(url, wait_until='domcontentloaded', timeout=45000)
                     try:
-                        await page.wait_for_selector('[data-marker="catalog-serp"]', timeout=30000)
+                        cards = await catalog_cards(page)
                     except Exception:
                         raise RuntimeError((await page.title())[:150]) from None
-                    rows = await page.locator('[data-marker="catalog-serp"] [data-marker="item"]').evaluate_all(EXTRACT)
+                    rows = await cards.evaluate_all(EXTRACT)
                     rows = rows[:20]
                     items = []
-                    cards = page.locator('[data-marker="catalog-serp"] [data-marker="item"]')
                     for card_index, row in enumerate(rows):
                         if not row.get('external_id') or not row.get('title') or not row.get('url') or row.get('price', 0) <= 0:
                             continue
@@ -196,14 +210,14 @@ async def main():
                         if cached:
                             row['details_attempted_at']=cached.get('details_attempted_at')
                         if cached and cached.get('detail_status') == 'complete':
-                            row.update({k:cached.get(k) for k in ['description','condition','delivery','seller_type','detail_status','details_checked_at']})
+                            row.update({k:cached.get(k) for k in ['description','condition','delivery','seller_type','detail_status','details_checked_at','avito_price_status','avito_price_label','specs','recommendation_search','mobile_fields_version']})
                         items.append(row)
                     if not items:
                         raise RuntimeError('В выдаче нет доступных карточек с ценами')
                     sent = upload(watch['id'],items)
                     enriched = 0
                     for i, row in enumerate(items):
-                        if row.get('detail_status') != 'complete' and not recent_attempt(row) and enriched < 5:
+                        if (row.get('detail_status') != 'complete' or row.get('mobile_fields_version')!=1) and not recent_attempt(row) and enriched < 5:
                             items[i] = await details(context, row)
                             enriched += 1
                             await asyncio.sleep(2)

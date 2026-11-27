@@ -122,15 +122,16 @@ function watchOptions(body = {}) {
     battery_min: num('battery_min', 0, 100), min_comparables: Math.max(3, num('min_comparables', 5, 50)),
     repair_costs: num('repair_costs', 0), delivery_costs: num('delivery_costs', 0), fixed_costs: num('fixed_costs', 500),
     sale_fee_percent: num('sale_fee_percent', 5, 100), reserve_percent: num('reserve_percent', 5, 100),
-    stop_words: String(body.stop_words || '').trim().slice(0, 500) };
+    stop_words: String(body.stop_words || '').trim().slice(0, 500),
+    avito_price_filter:['below','market_or_below'].includes(body.avito_price_filter)?body.avito_price_filter:'any' };
 }
 
 function inspectListing(listing) {
-  const text = `${listing.title}\n${listing.description || ''}`.toLowerCase().replaceAll('ё', 'е');
+  const text = `${listing.title}\n${listing.description || ''}\n${Object.entries(listing.specs||{}).map(([k,v])=>`${k}: ${v}`).join('\n')}`.toLowerCase().replaceAll('ё', 'е');
   const rules = [
     ['Блокировка / учётная запись', /(?:заблокирован|заблокирована|обход\s+icloud|на\s+icloud|не\s+помню\s+(?:пароль|apple)|mdm\s+lock)/iu],
     ['На запчасти / не работает', /(?:на\s+запчасти|не\s+включается|не\s+работает|неисправен|донор|не\s+ловит\s+сеть)/iu],
-    ['Повреждения', /(?:разбит|трещин[аы]|полос[аы]\s+на\s+экране|пятн[ао]\s+на\s+экране|после\s+воды|утоплен)/iu],
+    ['Повреждения', /(?:разбит|треснут|трещин[аы]|дефект[а-я]*|полос[аы]\s+на\s+экране|пятн[ао]\s+на\s+экране|после\s+воды|утоплен)/iu],
     ['Ремонт / замена деталей', /(?:менял[аи]?\s+(?:экран|дисплей|аккумулятор)|замен[ае]\s+(?:экран|дисплей|акб)|неоригинальн|после\s+ремонта|требует\s+ремонта)/iu],
     ['Предоплата / условия сделки', /(?:только\s+предоплата|перевод\s+до\s+отправки|без\s+проверки)/iu],
   ];
@@ -161,6 +162,8 @@ function assessListing(listing, watch, samples) {
   if (options.require_details && !inspection.details_checked) reasons.push('Полное описание ещё не проверено');
   if (options.delivery_only && inspection.delivery !== true) reasons.push('Доставка не подтверждена');
   if (options.private_only && listing.seller_type !== 'private') reasons.push('Частный продавец не подтверждён');
+  if(options.avito_price_filter==='below' && listing.avito_price_status!=='below') reasons.push('Нет отметки Avito «Ниже рыночной»');
+  if(options.avito_price_filter==='market_or_below' && !['market','below'].includes(listing.avito_price_status)) reasons.push('Оценка Avito не подтверждает цену не выше рынка');
   if (options.battery_min && (inspection.battery === null || inspection.battery < options.battery_min)) reasons.push('Зарядная ёмкость АКБ не подтверждена или ниже порога');
   if (options.exclude_defects && inspection.risks.length) reasons.push('Найдены признаки риска в описании');
   const haystack = `${listing.title} ${listing.description || ''}`.toLowerCase();
@@ -171,7 +174,7 @@ function assessListing(listing, watch, samples) {
   const conditionGroup = item => {
     const state=String(item.condition||'').toLowerCase();
     const text=String(item.description||'').toLowerCase();
-    if (/б\s*\/\s*у|подержан/iu.test(state)) return 'used';
+    if (/б\s*\/\s*у|подержан|хорошее|отличное|удовлетворительное|как\s+нов/iu.test(state)) return 'used';
     if (/новый|новое/iu.test(state) && !/как\s+нов/iu.test(state)) return 'new';
     if (/не\s+(?:использовал|пользовал|вскрывал)|запечатан/iu.test(text)) return 'new';
     if (/б\s*\/\s*у|как\s+нов|пользовал|в\s+использовании/iu.test(text)) return 'used';
@@ -201,7 +204,8 @@ function assessListing(listing, watch, samples) {
   if (profit !== null && profit < watch.min_profit) reasons.push('Прибыль ниже порога');
   if (roi !== null && roi < watch.min_roi) reasons.push('ROI ниже порога');
   return { ...inspection, model_key: key, expected, profit, roi, costs, total_costs: totalCosts,
-    market: { count: fair.length, low: percentile(.25), median, high: percentile(.75), source: 'Цены предложений, не завершённых продаж',
+    avito_price_status:listing.avito_price_status||'unknown', avito_price_label:listing.avito_price_label||'', specs:listing.specs||{}, recommendation_search:listing.recommendation_search||'',
+    market: { count: fair.length, mean:fair.length?Math.round(fair.reduce((a,b)=>a+b,0)/fair.length):null, low: percentile(.25), median, high: percentile(.75), source: 'Цены предложений, не завершённых продаж',
       examples: comparable.filter(s => fair.includes(s.price)).slice(0,5).map(s => ({ title:s.title, price:s.price, url:s.url })) },
     confidence: watch.expected_sale_price ? 'цена задана вами' : fair.length >= 10 ? 'достаточная выборка' : fair.length >= options.min_comparables ? 'небольшая выборка' : 'мало данных',
     eligible: reasons.length === 0, reasons, checked_at: new Date().toISOString() };
@@ -270,7 +274,7 @@ async function api(request, env, url) {
         scan_interval: "каждые 5 минут",
         deals: deals.map((deal) => {
           const raw = JSON.parse(deal.raw_json || '{}');
-          return { ...deal, description: raw.description || '', condition: raw.condition || '', seller_type: raw.seller_type || 'unknown',
+          return { ...deal, description: raw.description || '', condition: raw.condition || '', seller_type: raw.seller_type || 'unknown', avito_price_status:raw.avito_price_status||'unknown', avito_price_label:raw.avito_price_label||'', specs:raw.specs||{},
             analysis: deal.assessment_json ? JSON.parse(deal.assessment_json) : null,
             image_url: deal.has_photo ? `${env.APP_URL}/photo?id=${encodeURIComponent(deal.external_id)}` : photoUrl(raw.image_url || '', env),
             raw_json: undefined, assessment_json: undefined };
@@ -393,6 +397,11 @@ function validateListing(item) {
     detail_status: item.detail_status === 'complete' ? 'complete' : 'pending',
     details_checked_at: item.details_checked_at || (item.detail_status==='complete' ? new Date().toISOString() : null),
     details_attempted_at: item.details_attempted_at || null,
+    avito_price_status:['above','market','below'].includes(item.avito_price_status)?item.avito_price_status:'unknown',
+    avito_price_label:({above:'Цена выше рыночной',market:'Рыночная цена',below:'Цена ниже рыночной'})[item.avito_price_status]||'',
+    specs: Object.fromEntries(['screen','body','kit','manufacturer','model','storage','ram','color','sim'].filter(k=>typeof item.specs?.[k]==='string').map(k=>[k,item.specs[k].slice(0,150)])),
+    recommendation_search:String(item.recommendation_search||'').slice(0,200),
+    mobile_fields_version:item.mobile_fields_version===1?1:0,
     published_at: String(item.published_at || new Date().toISOString()),
   };
   if (!listing.external_id || listing.title.length < 2) throw new Error("нет external_id или title");

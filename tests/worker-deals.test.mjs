@@ -59,6 +59,16 @@ test('stop words, battery and repair allowance affect decisions', () => {
   assert.equal(normal.profit-repair.profit,3000);
 });
 
+test('Avito rating is independent and absence never means below market', () => {
+  const options=watchOptions({avito_price_filter:'below'});
+  assert.equal(assessListing(phone,{...radar,options},market).eligible,false);
+  assert.equal(assessListing({...phone,avito_price_status:'above'},{...radar,options},market).eligible,false);
+  assert.equal(assessListing({...phone,avito_price_status:'below'},{...radar,options},market).eligible,true);
+  assert.equal(assessListing(phone,radar,market).market.mean,21250);
+  assert.ok(inspectListing({...phone,specs:{screen:'Есть дефекты'}}).risks.length);
+  assert.equal(inspectListing({...phone,specs:{screen:'Без дефектов'}}).risks.length,0);
+});
+
 test('validates optional listing photo and rejects executable URLs', () => {
   assert.equal(validateListing(listing).image_url, listing.image_url);
   assert.equal(validateListing({ ...listing, image_url: '' }).image_url, '');

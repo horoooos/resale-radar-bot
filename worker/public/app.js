@@ -65,12 +65,13 @@ function renderDeals(deals) {
     return;
   }
   list.innerHTML = deals.map((deal) => `
-    <article class="deal-card">
+    <article class="deal-card" data-card="${escapeHtml(deal.external_id)}" tabindex="0" aria-label="Разбор: ${escapeHtml(deal.title)}">
       ${deal.image_url ? `<img class="deal-photo" src="${escapeHtml(deal.image_url)}" alt="Фото товара" loading="lazy" referrerpolicy="no-referrer" />` : '<div class="deal-photo deal-photo-fallback">Фото не предоставлено</div>'}
       <div class="deal-body">
         <h3>${escapeHtml(deal.title)}</h3>
         <div class="deal-price">${rubles.format(deal.price)} ₽</div>
         <div class="fact-chips"><span>${deal.analysis?.details_checked ? 'Описание прочитано' : 'Ожидает проверки'}</span><span>${deal.analysis?.delivery === true ? 'Есть доставка' : deal.analysis?.delivery === false ? 'Без доставки' : 'Доставка: нет данных'}</span></div>
+        <div class="fact-chips"><span>${escapeHtml(deal.avito_price_label || 'Avito: нет оценки')}</span></div>
         <div class="${deal.analysis?.eligible?'status-good':'status-neutral'}" style="font-size:.75rem;margin:8px 0">${deal.analysis?.eligible?'Прошло фильтры радара':'Сигнал не подтверждён'}</div>
         ${deal.analysis?.profit != null ? `<div class="deal-profit"><span>${deal.analysis.profit>=0?'+':''}${rubles.format(deal.analysis.profit)} ₽</span><span>ROI ${Number(deal.analysis.roi).toFixed(1)}%</span></div>` : '<div class="deal-details">Пока недостаточно данных для прибыли</div>'}
         <div class="deal-details ${deal.analysis?.risks.length ? 'status-bad' : ''}">${deal.analysis?.risks.length ? escapeHtml(deal.analysis.risks.map(r=>r.label).join(' · ')) : escapeHtml(deal.location || 'Город не указан')}</div>
@@ -94,7 +95,10 @@ async function openAnalysis(id) {
   const a=deal.analysis;
   const line=(name,value)=>`<div class="analysis-line"><span>${escapeHtml(name)}</span><b>${escapeHtml(value)}</b></div>`;
   const money=value=>value==null?'Недостаточно данных':`${rubles.format(value)} ₽`;
-  $('#deal-content').innerHTML=`<h3>${escapeHtml(deal.title)}</h3>${line('Покупка',money(deal.price))}
+  $('#deal-content').innerHTML=`${deal.image_url?`<img class="detail-photo" src="${escapeHtml(deal.image_url)}" alt="${escapeHtml(deal.title)}" />`:''}<h3>${escapeHtml(deal.title)}</h3>${line('Покупка',money(deal.price))}
+    <button class="deal-open" type="button" data-source-url="${escapeHtml(deal.url)}">Открыть оригинал на мобильном Avito ↗</button>
+    ${line('Оценка самой площадки',deal.avito_price_label||'Avito не предоставил оценку')}
+    ${Object.entries(deal.specs||{}).map(([k,v])=>line(({screen:'Экран',body:'Корпус',kit:'Комплект',manufacturer:'Производитель',model:'Модель',storage:'Память',ram:'Оперативная память',color:'Цвет',sim:'SIM-карты'})[k]||k,v)).join('')}
     ${line('Состояние по продавцу',a?.condition||deal.condition||'Не указано')}
     ${line('Доставка',a?.delivery===true?'Доступна по карточке/описанию':a?.delivery===false?'Не предусмотрена':'Не удалось определить')}
     ${line('АКБ по описанию',a?.battery!=null?`${a.battery}%`:'Не указано')}
@@ -103,9 +107,10 @@ async function openAnalysis(id) {
     ${a?.costs?Object.entries(a.costs).map(([k,v])=>line(({commission:'Комиссия',reserve:'Резерв',repair:'Ремонт',delivery:'Доставка',other:'Прочие расходы'})[k],money(v))).join(''):''}
     ${line('Потенциальная прибыль',money(a?.profit))}
     <div class="note-panel">${a?.eligible?'Прошло ваши фильтры. Проверьте товар лично.':escapeHtml(a?.reasons?.join(' · ')||'Полная проверка ещё не выполнена')}</div>
-    <h3>Рынок и аналоги</h3>${line('Проверенных аналогов',a?.market.count??0)}${line('Медиана цен',money(a?.market.median))}${line('Диапазон 25–75%',`${money(a?.market.low)} — ${money(a?.market.high)}`)}
+    <h3>Рынок и аналоги</h3>${line('Проверенных аналогов',a?.market.count??0)}${line('Средняя цена',money(a?.market.mean))}${line('Медиана цен',money(a?.market.median))}${line('Диапазон 25–75%',`${money(a?.market.low)} — ${money(a?.market.high)}`)}
     <p>Отдельная выборка предложений по России без потолка цены покупки. Не является статистикой завершённых продаж. Состояние и комплектацию аналогов нужно проверить.</p>
     ${(a?.market.examples||[]).map(s=>`<button class="market-example small-button" type="button" data-source-url="${escapeHtml(s.url)}">${escapeHtml(s.title)} · ${money(s.price)} ↗</button>`).join('')}
+    ${a?.recommendation_search?`<p>Подсказка поиска Avito: ${escapeHtml(a.recommendation_search)}. Это диапазон рекомендации поиска, не оценка состояния данного товара.</p>`:''}
     <h3>Риски по тексту</h3>${a?.risks.length?a.risks.map(r=>`<p class="status-bad">${escapeHtml(r.label)}</p><p class="risk-evidence">«${escapeHtml(r.evidence)}»</p>`).join(''):'<p>В проверенном тексте признаки не найдены либо описание ещё не проверено. Это не подтверждает исправность телефона.</p>'}
     <h3>Описание продавца</h3><p class="description">${escapeHtml(deal.description||'Полное описание пока не получено.')}</p><h3>История наблюдаемых цен</h3><div id="price-history">Загрузка…</div>`;
   $('#deal-modal').showModal();
@@ -185,7 +190,8 @@ document.addEventListener("click", async (event) => {
   }
   const sourceLink = event.target.closest("[data-source-url]");
   if (sourceLink) {
-    const url = sourceLink.dataset.sourceUrl;
+    let url = sourceLink.dataset.sourceUrl;
+    try { const parsed=new URL(url); if(parsed.hostname==='avito.ru'||parsed.hostname.endsWith('.avito.ru')){parsed.hostname='m.avito.ru';url=parsed.toString();} }catch{}
     if (tg?.openLink) tg.openLink(url);
     else window.open(url, "_blank", "noopener,noreferrer");
     return;
@@ -200,7 +206,10 @@ document.addEventListener("click", async (event) => {
       await load();
     } catch (error) { toast(error.message, true); }
   }
+  const card=event.target.closest('[data-card]');
+  if(card&&!event.target.closest('button,a,input,select,textarea'))openAnalysis(card.dataset.card);
 });
+document.addEventListener('keydown',event=>{if(event.target.matches('[data-card]')&&['Enter',' '].includes(event.key)){event.preventDefault();openAnalysis(event.target.dataset.card);}});
 
 $("#watch-form").addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -86,6 +86,7 @@
           <label class="check"><input name="private_only" type="checkbox" /> Только подтверждённые частные продавцы</label>
           <div class="grid-two"><label>Минимальная цена<input name="min_buy_price" type="number" min="0" value="0" /></label><label>АКБ не ниже, %<input name="battery_min" type="number" min="0" max="100" value="0" /></label></div>
           <label>Стоп-слова через запятую<input name="stop_words" placeholder="обмен, копия, рассрочка" maxlength="500" /></label>
+          <label>Независимая оценка Avito<select name="avito_price_filter"><option value="any">Любая / оценка отсутствует</option><option value="below">Только ниже рыночной по Avito</option><option value="market_or_below">Рыночная или ниже по Avito</option></select></label>
         </details>
         <details class="advanced"><summary>Расходы и рыночная оценка</summary>
           <div class="grid-two">
