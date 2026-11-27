@@ -71,6 +71,12 @@ async function load() {
 }
 
 document.addEventListener("click", async (event) => {
+  const closer = event.target.closest("[data-close]");
+  if (closer) {
+    closer.closest("dialog")?.close();
+    return;
+  }
+
   const opener = event.target.closest("[data-open]");
   if (opener) {
     if (!initData) return toast("Откройте приложение внутри Telegram", true);
