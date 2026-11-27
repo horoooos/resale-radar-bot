@@ -87,6 +87,8 @@ test('validates optional listing photo and rejects executable URLs', () => {
 test('collector rejects requests without its secret before reading database', async () => {
   const response = await collector(new Request('https://app/collector/watches'), { TELEGRAM_WEBHOOK_SECRET: 'test-secret' }, new URL('https://app/collector/watches'));
   assert.equal(response.status, 401);
+  const session=await collector(new Request('https://app/collector/session?engine=chrome'),{TELEGRAM_WEBHOOK_SECRET:'test-secret'},new URL('https://app/collector/session?engine=chrome'));
+  assert.equal(session.status,401);
 });
 
 test('source-search results are scoped to their owner and use price filters rather than radar label', async () => {

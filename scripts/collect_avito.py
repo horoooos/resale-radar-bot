@@ -96,6 +96,16 @@ async def details(context, row):
         result['seller_type'] = 'private' if 'Частное лицо' in seller_text else 'business' if any(w in seller_text for w in ['Компания', 'Магазин']) else 'unknown'
         buy = page.get_by_text(re.compile(r'^Купить (?:с (?:Авито )?доставкой|с доставкой)$', re.I))
         result['delivery'] = True if await buy.count() else None
+        gallery=page.locator('[data-marker="image-frame"] img, [data-marker="item-view/gallery"] img, [data-marker="image-frame/image"]').first
+        try:
+            if await gallery.count():
+                box=await gallery.bounding_box()
+                if box and box['width']>150 and box['height']>100:
+                    await gallery.scroll_into_view_if_needed(timeout=1000)
+                    picture=await gallery.screenshot(type='jpeg',quality=70,scale='css',animations='disabled',timeout=1500)
+                    if len(picture)<100000:result['image_data']=base64.b64encode(picture).decode('ascii')
+        except Exception:
+            pass
         result['detail_status'] = 'complete'
         result['details_checked_at'] = datetime.now(timezone.utc).isoformat()
         return result
